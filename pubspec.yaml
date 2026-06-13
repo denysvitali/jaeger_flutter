@@ -2,7 +2,7 @@ name: jaeger_flutter
 description: Mobile app for Jaeger distributed tracing.
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 2026.06.13.2236+202606132236
 
 environment:
   sdk: '>=3.10.0 <4.0.0'
