@@ -1,4 +1,4 @@
-package com.example.jaeger_flutter
+package it.denv.jaeger
 
 import io.flutter.embedding.android.FlutterActivity
 
