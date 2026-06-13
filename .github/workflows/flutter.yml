@@ -41,7 +41,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')) ||
-      startsWith(github.ref, 'refs/tags/v')
+      (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '+'))
     permissions:
       contents: write
 
@@ -136,14 +136,18 @@ jobs:
           retention-days: 14
 
       - name: Create GitHub Release
-        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        if: |
+          (startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '+')) ||
+          github.ref == 'refs/heads/master' ||
+          github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Jaeger Flutter ${{ github.ref_name }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('v{0}+{1}', steps.build_meta.outputs.SEMVER, steps.build_meta.outputs.BUILD_NUMBER) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && format('Jaeger Flutter {0}', github.ref_name) || format('Jaeger Flutter v{0}+{1}', steps.build_meta.outputs.SEMVER, steps.build_meta.outputs.BUILD_NUMBER) }}
           draft: false
           prerelease: false
           generate_release_notes: true
+          make_latest: true
           files: build/app/outputs/flutter-apk/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
