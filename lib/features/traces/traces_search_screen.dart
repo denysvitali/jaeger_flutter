@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/api/jaeger_api.dart';
 import '../../core/models/models.dart';
 import '../../core/providers/app_providers.dart';
+import '../../core/utils/ui_helpers.dart';
 
 class TracesSearchScreen extends ConsumerWidget {
   const TracesSearchScreen({super.key});
@@ -57,9 +58,7 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
     _service = widget.params.service;
     _operation = widget.params.operation;
     _tagsController.text =
-        widget.params.tags?.entries
-            .map((e) => '${e.key}=${e.value}')
-            .join(',') ??
+        widget.params.tags?.entries.map((e) => '${e.key}=${e.value}').join(',') ??
         '';
     _limitController.text = widget.params.limit.toString();
   }
@@ -110,7 +109,6 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Service',
-                border: OutlineInputBorder(),
               ),
               hint: const Text('Select a service'),
               items: [
@@ -139,19 +137,18 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
             decoration: const InputDecoration(
               labelText: 'Tags',
               hintText: 'key=value,key2=value2',
-              border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
+                flex: 1,
                 child: TextFormField(
                   controller: _limitController,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     labelText: 'Limit',
-                    border: OutlineInputBorder(),
                   ),
                 ),
               ),
@@ -193,7 +190,6 @@ class _OperationDropdown extends ConsumerWidget {
         isExpanded: true,
         decoration: const InputDecoration(
           labelText: 'Operation',
-          border: OutlineInputBorder(),
         ),
         items: const [],
         onChanged: null,
@@ -208,7 +204,6 @@ class _OperationDropdown extends ConsumerWidget {
         isExpanded: true,
         decoration: const InputDecoration(
           labelText: 'Operation',
-          border: OutlineInputBorder(),
         ),
         hint: const Text('All operations'),
         items: [
@@ -235,6 +230,7 @@ class _TraceList extends StatelessWidget {
     }
 
     return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: traces.length,
       itemBuilder: (context, index) {
         final trace = traces[index];
@@ -242,22 +238,68 @@ class _TraceList extends StatelessWidget {
         final service = rootSpan != null
             ? trace.processes[rootSpan.processID]?.serviceName ?? ''
             : '';
-        final durationMs = trace.spans.isNotEmpty
-            ? trace.spans
-                      .map((s) => s.duration)
-                      .reduce((a, b) => a > b ? a : b) /
-                  1000
-            : 0.0;
+        final startUs = trace.spans
+            .map((s) => s.startTime)
+            .fold(0, (a, b) => a == 0 || b < a ? b : a);
+        final durationUs = trace.spans.isNotEmpty
+            ? trace.spans.map((s) => s.duration).reduce((a, b) => a > b ? a : b)
+            : 0;
 
-        return ListTile(
-          leading: const Icon(Icons.account_tree_outlined),
-          title: Text(rootSpan?.operationName ?? trace.traceID),
-          subtitle: Text(
-            '$service · ${trace.spans.length} spans · '
-            '${durationMs.toStringAsFixed(2)} ms',
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Card(
+            child: InkWell(
+              onTap: () => context.push('/traces/${trace.traceID}'),
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: serviceColor(service),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            rootSpan?.operationName ?? trace.traceID,
+                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$service · ${trace.spans.length} spans · '
+                            '${formatTimestamp(startUs)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Chip(
+                      label: Text(formatDuration(durationUs)),
+                      padding: EdgeInsets.zero,
+                      labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.chevron_right, size: 18),
+                  ],
+                ),
+              ),
+            ),
           ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => context.push('/traces/${trace.traceID}'),
         );
       },
     );

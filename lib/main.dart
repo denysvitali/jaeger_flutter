@@ -48,6 +48,53 @@ Uint8List _derToPem(Uint8List der) {
   return Uint8List.fromList(utf8.encode(buffer.toString()));
 }
 
+ThemeData _buildTheme(Brightness brightness) {
+  final colorScheme = ColorScheme.fromSeed(
+    seedColor: const Color(0xFFDC382D),
+    brightness: brightness,
+  );
+
+  return ThemeData(
+    colorScheme: colorScheme,
+    useMaterial3: true,
+    appBarTheme: AppBarTheme(
+      centerTitle: false,
+      scrolledUnderElevation: 0,
+      backgroundColor: colorScheme.surfaceContainerHighest,
+      foregroundColor: colorScheme.onSurface,
+    ),
+    cardTheme: CardThemeData(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      color: colorScheme.surfaceContainerLow,
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: colorScheme.surfaceContainerHighest,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    ),
+    chipTheme: ChipThemeData(
+      side: BorderSide.none,
+      backgroundColor: colorScheme.surfaceContainerHighest,
+    ),
+    dividerTheme: const DividerThemeData(space: 1),
+  );
+}
+
 class JaegerApp extends ConsumerWidget {
   const JaegerApp({super.key});
 
@@ -58,20 +105,8 @@ class JaegerApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'Jaeger',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepOrange,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepOrange,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: _buildTheme(Brightness.light),
+      darkTheme: _buildTheme(Brightness.dark),
       routerConfig: router,
     );
   }
