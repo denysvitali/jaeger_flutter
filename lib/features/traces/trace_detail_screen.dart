@@ -55,7 +55,8 @@ class _TraceBody extends StatelessWidget {
 
   int get _traceDurationUs => _traceEndUs - _traceStartUs;
 
-  int get _servicesCount => trace.processes.values.map((p) => p.serviceName).toSet().length;
+  int get _servicesCount =>
+      trace.processes.values.map((p) => p.serviceName).toSet().length;
 
   int get _traceDepth {
     int depth(Span span) {
@@ -151,8 +152,9 @@ class _TraceHeader extends StatelessWidget {
               Expanded(
                 child: SelectableText(
                   title,
-                  style: theme.textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               IconButton(
@@ -170,18 +172,16 @@ class _TraceHeader extends StatelessWidget {
           const SizedBox(height: 4),
           SelectableText(
             trace.traceID,
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: colorScheme.onSurfaceVariant),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              _MetaChip(
-                icon: Icons.schedule,
-                label: formatTimestamp(startUs),
-              ),
+              _MetaChip(icon: Icons.schedule, label: formatTimestamp(startUs)),
               _MetaChip(
                 icon: Icons.timer_outlined,
                 label: formatDuration(durationUs),
@@ -194,10 +194,7 @@ class _TraceHeader extends StatelessWidget {
                 icon: Icons.dns_outlined,
                 label: '$servicesCount services',
               ),
-              _MetaChip(
-                icon: Icons.layers_outlined,
-                label: 'depth $depth',
-              ),
+              _MetaChip(icon: Icons.layers_outlined, label: 'depth $depth'),
             ],
           ),
           const SizedBox(height: 16),
@@ -272,14 +269,17 @@ class _MiniTimelinePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (traceDurationUs <= 0 || trace.spans.isEmpty) return;
 
-    final sorted = trace.spans.toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final sorted = trace.spans.toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
     final rowHeight = size.height / 6;
     var y = 0.0;
 
     for (final span in sorted) {
-      final left = ((span.startTime - traceStartUs) / traceDurationUs) * size.width;
+      final left =
+          ((span.startTime - traceStartUs) / traceDurationUs) * size.width;
       final width = (span.duration / traceDurationUs) * size.width;
-      final service = trace.processes[span.processID]?.serviceName ?? span.processID;
+      final service =
+          trace.processes[span.processID]?.serviceName ?? span.processID;
       final paint = Paint()
         ..color = serviceColor(service)
         ..style = PaintingStyle.fill;
@@ -300,10 +300,7 @@ class _MiniTimelinePainter extends CustomPainter {
 }
 
 class _TimelineAxisHeader extends StatelessWidget {
-  const _TimelineAxisHeader({
-    required this.startUs,
-    required this.durationUs,
-  });
+  const _TimelineAxisHeader({required this.startUs, required this.durationUs});
 
   final int startUs;
   final int durationUs;
@@ -316,9 +313,7 @@ class _TimelineAxisHeader extends StatelessWidget {
         children: [
           const SizedBox(width: _labelColumnWidth),
           Expanded(
-            child: CustomPaint(
-              painter: _AxisPainter(durationUs: durationUs),
-            ),
+            child: CustomPaint(painter: _AxisPainter(durationUs: durationUs)),
           ),
         ],
       ),
@@ -353,7 +348,11 @@ class _AxisPainter extends CustomPainter {
 
     for (final tick in ticks) {
       final x = (tick / durationUs) * size.width;
-      canvas.drawLine(Offset(x, size.height - 6), Offset(x, size.height - 1), axisPaint);
+      canvas.drawLine(
+        Offset(x, size.height - 6),
+        Offset(x, size.height - 1),
+        axisPaint,
+      );
 
       final text = formatTimeAxisLabel(tick);
       final tp = TextPainter(
@@ -396,7 +395,9 @@ class _SpanNodeState extends State<_SpanNode> {
   List<Span> get _children => widget.trace.spans
       .where(
         (s) => s.references.any(
-          (r) => r.traceID == widget.span.traceID && r.spanID == widget.span.spanID,
+          (r) =>
+              r.traceID == widget.span.traceID &&
+              r.spanID == widget.span.spanID,
         ),
       )
       .toList();
@@ -461,8 +462,9 @@ class _SpanNodeState extends State<_SpanNode> {
                           children: [
                             Text(
                               widget.span.operationName,
-                              style: theme.textTheme.bodyMedium
-                                  ?.copyWith(fontWeight: FontWeight.w500),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w500,
+                              ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -487,11 +489,12 @@ class _SpanNodeState extends State<_SpanNode> {
                   builder: (context, constraints) {
                     final width = constraints.maxWidth;
                     final durationUs = widget.traceDurationUs;
-                    final left = ((widget.span.startTime - widget.traceStartUs) /
+                    final left =
+                        ((widget.span.startTime - widget.traceStartUs) /
                             durationUs) *
                         width;
-                    final barWidth =
-                        (widget.span.duration / durationUs * width).clamp(2.0, width);
+                    final barWidth = (widget.span.duration / durationUs * width)
+                        .clamp(2.0, width);
 
                     return SizedBox(
                       height: 40,
@@ -559,7 +562,11 @@ class _SpanNodeState extends State<_SpanNode> {
           controller: scrollController,
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
           children: [
-            _SpanDetailHeader(span: widget.span, service: _service, color: _serviceColor),
+            _SpanDetailHeader(
+              span: widget.span,
+              service: _service,
+              color: _serviceColor,
+            ),
             const SizedBox(height: 16),
             _DetailSection(
               title: 'Details',
@@ -581,7 +588,12 @@ class _SpanNodeState extends State<_SpanNode> {
               _DetailSection(
                 title: 'Tags',
                 rows: widget.span.tags
-                    .map((t) => _DetailRow(label: t.key, value: t.value?.toString() ?? ''))
+                    .map(
+                      (t) => _DetailRow(
+                        label: t.key,
+                        value: t.value?.toString() ?? '',
+                      ),
+                    )
                     .toList(),
               ),
             if (widget.span.logs.isNotEmpty)
@@ -633,8 +645,9 @@ class _SpanDetailHeader extends StatelessWidget {
             Expanded(
               child: Text(
                 service,
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ],
@@ -642,7 +655,9 @@ class _SpanDetailHeader extends StatelessWidget {
         const SizedBox(height: 6),
         Text(
           span.operationName,
-          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );
@@ -693,15 +708,13 @@ class _DetailRow extends StatelessWidget {
             width: 100,
             child: Text(
               label,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
           Expanded(
-            child: SelectableText(
-              value,
-              style: theme.textTheme.bodyMedium,
-            ),
+            child: SelectableText(value, style: theme.textTheme.bodyMedium),
           ),
         ],
       ),

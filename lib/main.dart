@@ -65,9 +65,7 @@ ThemeData _buildTheme(Brightness brightness) {
     ),
     cardTheme: CardThemeData(
       elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       color: colorScheme.surfaceContainerLow,
     ),
     inputDecorationTheme: InputDecorationTheme(

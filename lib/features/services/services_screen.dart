@@ -25,7 +25,10 @@ class ServicesScreen extends ConsumerWidget {
             itemBuilder: (context, index) {
               final service = items[index];
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 child: Card(
                   child: ListTile(
                     leading: Container(
@@ -41,7 +44,9 @@ class ServicesScreen extends ConsumerWidget {
                     onTap: () {
                       ref
                           .read(traceSearchParamsProvider.notifier)
-                          .update(TraceSearchRequest(service: service, limit: 20));
+                          .update(
+                            TraceSearchRequest(service: service, limit: 20),
+                          );
                       context.go('/traces');
                     },
                   ),

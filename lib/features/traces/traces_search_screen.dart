@@ -58,7 +58,9 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
     _service = widget.params.service;
     _operation = widget.params.operation;
     _tagsController.text =
-        widget.params.tags?.entries.map((e) => '${e.key}=${e.value}').join(',') ??
+        widget.params.tags?.entries
+            .map((e) => '${e.key}=${e.value}')
+            .join(',') ??
         '';
     _limitController.text = widget.params.limit.toString();
   }
@@ -107,9 +109,7 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
             data: (items) => DropdownButtonFormField<String>(
               value: _service.isEmpty ? null : _service,
               isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Service',
-              ),
+              decoration: const InputDecoration(labelText: 'Service'),
               hint: const Text('Select a service'),
               items: [
                 const DropdownMenuItem(value: '', child: Text('—')),
@@ -147,9 +147,7 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
                 child: TextFormField(
                   controller: _limitController,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Limit',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Limit'),
                 ),
               ),
               const SizedBox(width: 12),
@@ -188,9 +186,7 @@ class _OperationDropdown extends ConsumerWidget {
       return DropdownButtonFormField<String>(
         value: null,
         isExpanded: true,
-        decoration: const InputDecoration(
-          labelText: 'Operation',
-        ),
+        decoration: const InputDecoration(labelText: 'Operation'),
         items: const [],
         onChanged: null,
       );
@@ -202,9 +198,7 @@ class _OperationDropdown extends ConsumerWidget {
       data: (items) => DropdownButtonFormField<String?>(
         value: operation,
         isExpanded: true,
-        decoration: const InputDecoration(
-          labelText: 'Operation',
-        ),
+        decoration: const InputDecoration(labelText: 'Operation'),
         hint: const Text('All operations'),
         items: [
           const DropdownMenuItem(value: null, child: Text('— all —')),
@@ -252,7 +246,10 @@ class _TraceList extends StatelessWidget {
               onTap: () => context.push('/traces/${trace.traceID}'),
               borderRadius: BorderRadius.circular(12),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 child: Row(
                   children: [
                     Container(
@@ -270,9 +267,8 @@ class _TraceList extends StatelessWidget {
                         children: [
                           Text(
                             rootSpan?.operationName ?? trace.traceID,
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(fontWeight: FontWeight.w600),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),

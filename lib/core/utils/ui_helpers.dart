@@ -45,16 +45,14 @@ String formatDuration(int microseconds) {
 }
 
 /// Formats an absolute timestamp with milliseconds.
-String formatTimestamp(int microseconds) => _timestampFormat.format(
-  DateTime.fromMicrosecondsSinceEpoch(microseconds),
-);
+String formatTimestamp(int microseconds) =>
+    _timestampFormat.format(DateTime.fromMicrosecondsSinceEpoch(microseconds));
 
 final _timestampFormat = DateFormat('yyyy-MM-dd HH:mm:ss.SSS');
 
 /// Formats a time of day with milliseconds.
-String formatTimeOfDay(int microseconds) => _timeFormat.format(
-  DateTime.fromMicrosecondsSinceEpoch(microseconds),
-);
+String formatTimeOfDay(int microseconds) =>
+    _timeFormat.format(DateTime.fromMicrosecondsSinceEpoch(microseconds));
 
 final _timeFormat = DateFormat('HH:mm:ss.SSS');
 
@@ -73,13 +71,14 @@ List<int> timelineTicks(int duration, {int maxTicks = 6}) {
   final rough = duration / max(1, maxTicks - 1);
   final magnitude = pow(10, (log(rough) / ln10).floor()).toDouble();
   final residual = rough / magnitude;
-  final step = (residual <= 1
+  final step =
+      (residual <= 1
           ? 1
           : residual <= 2
-              ? 2
-              : residual <= 5
-                  ? 5
-                  : 10) *
+          ? 2
+          : residual <= 5
+          ? 5
+          : 10) *
       magnitude;
 
   final ticks = <int>[];
