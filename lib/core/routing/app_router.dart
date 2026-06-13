@@ -16,9 +16,8 @@ final appRouterProvider = Provider<GoRouter>(
     initialLocation: '/traces',
     routes: [
       StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) => HomeShell(
-          navigationShell: navigationShell,
-        ),
+        builder: (context, state, navigationShell) =>
+            HomeShell(navigationShell: navigationShell),
         branches: [
           StatefulShellBranch(
             routes: [

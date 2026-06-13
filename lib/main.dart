@@ -8,8 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/routing/app_router.dart';
 import 'platform_io.dart' if (dart.library.js_interop) 'platform_stub.dart';
-import 'user_certs_io.dart'
-    if (dart.library.js_interop) 'user_certs_stub.dart';
+import 'user_certs_io.dart' if (dart.library.js_interop) 'user_certs_stub.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,8 +38,7 @@ Future<void> _loadUserCertificates() async {
 /// Converts DER-encoded certificate bytes to PEM format.
 Uint8List _derToPem(Uint8List der) {
   final base64Data = base64Encode(der);
-  final buffer = StringBuffer()
-    ..writeln('-----BEGIN CERTIFICATE-----');
+  final buffer = StringBuffer()..writeln('-----BEGIN CERTIFICATE-----');
   for (var i = 0; i < base64Data.length; i += 64) {
     buffer.writeln(
       base64Data.substring(i, (i + 64).clamp(0, base64Data.length)),

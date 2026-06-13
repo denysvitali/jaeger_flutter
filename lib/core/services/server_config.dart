@@ -10,7 +10,7 @@ const _defaultServerUrl = 'http://jaeger.monitoring.svc.cluster.local:16686';
 
 class ServerConfig {
   ServerConfig({SharedPreferencesAsync? prefs})
-      : _prefs = prefs ?? SharedPreferencesAsync();
+    : _prefs = prefs ?? SharedPreferencesAsync();
 
   final SharedPreferencesAsync _prefs;
 

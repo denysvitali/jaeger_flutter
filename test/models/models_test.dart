@@ -39,13 +39,10 @@ void main() {
             'tags': [],
             'logs': [],
             'processID': 'p1',
-          }
+          },
         ],
         'processes': {
-          'p1': {
-            'serviceName': 'jaeger',
-            'tags': []
-          }
+          'p1': {'serviceName': 'jaeger', 'tags': []},
         },
       });
 
@@ -64,21 +61,17 @@ void main() {
             'spanID': 'child',
             'operationName': 'child',
             'references': [
-              {
-                'refType': 'CHILD_OF',
-                'traceID': 'abc123',
-                'spanID': 'parent'
-              }
+              {'refType': 'CHILD_OF', 'traceID': 'abc123', 'spanID': 'parent'},
             ],
             'startTime': 1,
             'duration': 1,
             'tags': [],
             'logs': [],
             'processID': 'p1',
-          }
+          },
         ],
         'processes': {
-          'p1': {'serviceName': 'svc', 'tags': []}
+          'p1': {'serviceName': 'svc', 'tags': []},
         },
       });
 

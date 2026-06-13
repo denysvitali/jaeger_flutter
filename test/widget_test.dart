@@ -6,9 +6,7 @@ import 'package:jaeger_flutter/main.dart';
 
 void main() {
   testWidgets('App renders home shell', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const ProviderScope(child: JaegerApp()),
-    );
+    await tester.pumpWidget(const ProviderScope(child: JaegerApp()));
 
     expect(find.byType(MaterialApp), findsOneWidget);
   });

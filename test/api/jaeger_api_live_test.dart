@@ -36,19 +36,13 @@ void main() {
     }, skip: !runLive);
 
     test('search traces for jaeger service', () async {
-      const request = TraceSearchRequest(
-        service: 'jaeger',
-        limit: 5,
-      );
+      const request = TraceSearchRequest(service: 'jaeger', limit: 5);
       final response = await api.searchTraces(request);
       expect(response.data, isNotEmpty);
     }, skip: !runLive);
 
     test('fetch a trace by ID', () async {
-      const searchRequest = TraceSearchRequest(
-        service: 'jaeger',
-        limit: 1,
-      );
+      const searchRequest = TraceSearchRequest(service: 'jaeger', limit: 1);
       final searchResponse = await api.searchTraces(searchRequest);
       expect(searchResponse.data, isNotEmpty);
 

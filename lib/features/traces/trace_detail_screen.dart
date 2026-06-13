@@ -40,8 +40,9 @@ class _TraceBody extends StatelessWidget {
 
   static final _timeFormat = DateFormat('yyyy-MM-dd HH:mm:ss.SSS');
 
-  int get _traceStartUs =>
-      trace.spans.map((s) => s.startTime).fold(0, (a, b) => a == 0 || b < a ? b : a);
+  int get _traceStartUs => trace.spans
+      .map((s) => s.startTime)
+      .fold(0, (a, b) => a == 0 || b < a ? b : a);
 
   @override
   Widget build(BuildContext context) {
@@ -71,11 +72,8 @@ class _TraceBody extends StatelessWidget {
         Expanded(
           child: ListView.builder(
             itemCount: rootSpans.length,
-            itemBuilder: (context, index) => _SpanTile(
-              trace: trace,
-              span: rootSpans[index],
-              depth: 0,
-            ),
+            itemBuilder: (context, index) =>
+                _SpanTile(trace: trace, span: rootSpans[index], depth: 0),
           ),
         ),
       ],
@@ -98,8 +96,9 @@ class _SpanTile extends StatelessWidget {
 
   List<Span> get _children => trace.spans
       .where(
-        (s) =>
-            s.references.any((r) => r.traceID == span.traceID && r.spanID == span.spanID),
+        (s) => s.references.any(
+          (r) => r.traceID == span.traceID && r.spanID == span.spanID,
+        ),
       )
       .toList();
 
@@ -113,7 +112,8 @@ class _SpanTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = trace.processes[span.processID]?.serviceName ?? span.processID;
+    final service =
+        trace.processes[span.processID]?.serviceName ?? span.processID;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -146,7 +146,8 @@ class _SpanTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (_children.isNotEmpty) const Icon(Icons.expand_more, size: 18),
+                if (_children.isNotEmpty)
+                  const Icon(Icons.expand_more, size: 18),
               ],
             ),
           ),
@@ -181,7 +182,10 @@ class _SpanTile extends StatelessWidget {
               const SizedBox(height: 8),
               _DetailRow(label: 'Span ID', value: span.spanID),
               _DetailRow(label: 'Service', value: service),
-              _DetailRow(label: 'Duration', value: _formatDuration(span.duration)),
+              _DetailRow(
+                label: 'Duration',
+                value: _formatDuration(span.duration),
+              ),
               _DetailRow(
                 label: 'Start time',
                 value: _timeFormat.format(
@@ -192,7 +196,8 @@ class _SpanTile extends StatelessWidget {
               Text('Tags', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: 8),
               ...span.tags.map(
-                (t) => _DetailRow(label: t.key, value: t.value?.toString() ?? ''),
+                (t) =>
+                    _DetailRow(label: t.key, value: t.value?.toString() ?? ''),
               ),
               if (span.logs.isNotEmpty) ...[
                 const SizedBox(height: 16),
@@ -230,10 +235,7 @@ class _DetailRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 100,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
           ),
           Expanded(
             child: SelectableText(

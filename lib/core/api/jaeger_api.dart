@@ -59,8 +59,7 @@ class TraceSearchRequest {
     return params;
   }
 
-  static int _microsecondsSinceEpoch(DateTime dt) =>
-      dt.microsecondsSinceEpoch;
+  static int _microsecondsSinceEpoch(DateTime dt) => dt.microsecondsSinceEpoch;
 
   static String _durationString(Duration d) {
     final us = d.inMicroseconds;
@@ -80,7 +79,7 @@ abstract class JaegerApi {
 
 class NetworkJaegerApi implements JaegerApi {
   NetworkJaegerApi({required ServerConfig serverConfig})
-      : _serverConfig = serverConfig;
+    : _serverConfig = serverConfig;
 
   final ServerConfig _serverConfig;
 

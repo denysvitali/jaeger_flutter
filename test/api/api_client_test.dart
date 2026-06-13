@@ -5,18 +5,24 @@ import 'package:jaeger_flutter/core/api/jaeger_api.dart';
 void main() {
   group('normalizeServerUrl', () {
     test('adds http scheme when missing', () {
-      expect(normalizeServerUrl('jaeger.example.com:16686'),
-          'http://jaeger.example.com:16686');
+      expect(
+        normalizeServerUrl('jaeger.example.com:16686'),
+        'http://jaeger.example.com:16686',
+      );
     });
 
     test('preserves https scheme', () {
-      expect(normalizeServerUrl('https://jaeger.example.com'),
-          'https://jaeger.example.com');
+      expect(
+        normalizeServerUrl('https://jaeger.example.com'),
+        'https://jaeger.example.com',
+      );
     });
 
     test('trims trailing slashes', () {
-      expect(normalizeServerUrl('http://jaeger.example.com/'),
-          'http://jaeger.example.com');
+      expect(
+        normalizeServerUrl('http://jaeger.example.com/'),
+        'http://jaeger.example.com',
+      );
     });
 
     test('returns empty string for empty input', () {

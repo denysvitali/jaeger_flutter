@@ -15,7 +15,8 @@ class ServicesScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Services')),
       body: services.when(
         data: (items) => RefreshIndicator(
-          onRefresh: () => ref.read(servicesNotifierProvider.notifier).refresh(),
+          onRefresh: () =>
+              ref.read(servicesNotifierProvider.notifier).refresh(),
           child: ListView.builder(
             itemCount: items.length,
             itemBuilder: (context, index) {
@@ -24,9 +25,9 @@ class ServicesScreen extends ConsumerWidget {
                 leading: const Icon(Icons.label_outline),
                 title: Text(service),
                 onTap: () {
-                  ref.read(traceSearchParamsProvider.notifier).update(
-                        TraceSearchRequest(service: service, limit: 20),
-                      );
+                  ref
+                      .read(traceSearchParamsProvider.notifier)
+                      .update(TraceSearchRequest(service: service, limit: 20));
                   // The bottom navigation shell keeps its own state; switching
                   // branches programmatically is not exposed here, so we show a
                   // snackbar and let the user switch to the Traces tab.

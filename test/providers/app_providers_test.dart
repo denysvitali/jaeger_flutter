@@ -5,10 +5,7 @@ import 'package:jaeger_flutter/core/models/models.dart';
 import 'package:jaeger_flutter/core/providers/app_providers.dart';
 
 class _FakeJaegerApi implements JaegerApi {
-  _FakeJaegerApi({
-    this.services = const [],
-    this.traces = const [],
-  });
+  _FakeJaegerApi({this.services = const [], this.traces = const []});
 
   final List<String> services;
   final List<Trace> traces;
@@ -80,9 +77,7 @@ void main() {
   group('TracesNotifier', () {
     test('returns empty list when no service is selected', () async {
       final container = ProviderContainer(
-        overrides: [
-          jaegerApiProvider.overrideWithValue(_FakeJaegerApi()),
-        ],
+        overrides: [jaegerApiProvider.overrideWithValue(_FakeJaegerApi())],
       );
       addTearDown(container.dispose);
 
@@ -96,11 +91,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           jaegerApiProvider.overrideWithValue(
-            _FakeJaegerApi(
-              traces: [
-                const Trace(traceID: 'trace1'),
-              ],
-            ),
+            _FakeJaegerApi(traces: [const Trace(traceID: 'trace1')]),
           ),
         ],
       );

@@ -56,7 +56,8 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
     super.initState();
     _service = widget.params.service;
     _operation = widget.params.operation;
-    _tagsController.text = widget.params.tags?.entries
+    _tagsController.text =
+        widget.params.tags?.entries
             .map((e) => '${e.key}=${e.value}')
             .join(',') ??
         '';
@@ -114,9 +115,7 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
               hint: const Text('Select a service'),
               items: [
                 const DropdownMenuItem(value: '', child: Text('—')),
-                ...items.map(
-                  (s) => DropdownMenuItem(value: s, child: Text(s)),
-                ),
+                ...items.map((s) => DropdownMenuItem(value: s, child: Text(s))),
               ],
               onChanged: (value) {
                 setState(() {
@@ -214,9 +213,7 @@ class _OperationDropdown extends ConsumerWidget {
         hint: const Text('All operations'),
         items: [
           const DropdownMenuItem(value: null, child: Text('— all —')),
-          ...items.map(
-            (op) => DropdownMenuItem(value: op, child: Text(op)),
-          ),
+          ...items.map((op) => DropdownMenuItem(value: op, child: Text(op))),
         ],
         onChanged: onChanged,
       ),
@@ -247,9 +244,9 @@ class _TraceList extends StatelessWidget {
             : '';
         final durationMs = trace.spans.isNotEmpty
             ? trace.spans
-                    .map((s) => s.duration)
-                    .reduce((a, b) => a > b ? a : b) /
-                1000
+                      .map((s) => s.duration)
+                      .reduce((a, b) => a > b ? a : b) /
+                  1000
             : 0.0;
 
         return ListTile(
