@@ -1,18 +1,16 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jaeger_flutter/core/api/jaeger_api.dart';
 import 'package:jaeger_flutter/core/models/models.dart';
 import 'package:jaeger_flutter/core/providers/app_providers.dart';
-import 'package:riverpod/riverpod.dart';
 
 class _FakeJaegerApi implements JaegerApi {
   _FakeJaegerApi({
     this.services = const [],
-    this.operations = const [],
     this.traces = const [],
   });
 
   final List<String> services;
-  final List<String> operations;
   final List<Trace> traces;
 
   @override
@@ -21,7 +19,7 @@ class _FakeJaegerApi implements JaegerApi {
 
   @override
   Future<OperationsResponse> getOperations(String service) async =>
-      OperationsResponse(data: operations);
+      const OperationsResponse();
 
   @override
   Future<Trace> getTrace(String traceId) async => traces.first;
