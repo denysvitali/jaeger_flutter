@@ -57,10 +57,18 @@ const double _kBorderRadiusSmall = 12;
 const double _kBorderRadiusLarge = 16;
 const double _kBorderRadiusModal = 24;
 
-const EdgeInsets _kCardPadding = EdgeInsets.all(16);
-const EdgeInsets _kCardMargin = EdgeInsets.symmetric(horizontal: 12, vertical: 8);
-const EdgeInsets _kInputPadding = EdgeInsets.symmetric(horizontal: 16, vertical: 12);
-const EdgeInsets _kChipPadding = EdgeInsets.symmetric(horizontal: 8, vertical: 4);
+const EdgeInsets _kCardMargin = EdgeInsets.symmetric(
+  horizontal: 12,
+  vertical: 8,
+);
+const EdgeInsets _kInputPadding = EdgeInsets.symmetric(
+  horizontal: 16,
+  vertical: 12,
+);
+const EdgeInsets _kChipPadding = EdgeInsets.symmetric(
+  horizontal: 8,
+  vertical: 4,
+);
 const EdgeInsets _kChipLabelPadding = EdgeInsets.symmetric(horizontal: 4);
 
 /// Shared page transitions used by the router.
@@ -76,27 +84,35 @@ CustomTransitionPage<void> buildPageTransition({
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
       if (fade) {
         return FadeTransition(
-          opacity: animation.drive(Tween<double>(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeInOut))),
+          opacity: animation.drive(
+            Tween<double>(
+              begin: 0.0,
+              end: 1.0,
+            ).chain(CurveTween(curve: Curves.easeInOut)),
+          ),
           child: child,
         );
       }
       // Shared-axis horizontal feel via slide + fade
-      final slide = Tween<Offset>(begin: const Offset(0.05, 0), end: Offset.zero).chain(CurveTween(curve: Curves.easeInOut));
-      final fadeTween = Tween<double>(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeInOut));
+      final slide = Tween<Offset>(
+        begin: const Offset(0.05, 0),
+        end: Offset.zero,
+      ).chain(CurveTween(curve: Curves.easeInOut));
+      final fadeTween = Tween<double>(
+        begin: 0.0,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.easeInOut));
       return FadeTransition(
         opacity: animation.drive(fadeTween),
-        child: SlideTransition(
-          position: animation.drive(slide),
-          child: child,
-        ),
+        child: SlideTransition(position: animation.drive(slide), child: child),
       );
     },
   );
 }
 
 ThemeData _buildTheme(Brightness brightness) {
-  final seedColor = const Color(0xFFDC382D);
-  final secondaryColor = const Color(0xFF0066CC);
+  const seedColor = Color(0xFFDC382D);
+  const secondaryColor = Color(0xFF0066CC);
 
   final colorScheme = ColorScheme.fromSeed(
     seedColor: seedColor,
@@ -104,15 +120,13 @@ ThemeData _buildTheme(Brightness brightness) {
     secondary: secondaryColor,
   );
 
-  final surfaceColor = brightness == Brightness.light
-      ? colorScheme.surface
-      : colorScheme.surface;
+  final surfaceColor = colorScheme.surface;
 
   final cardColor = brightness == Brightness.light
       ? colorScheme.surfaceContainerLow
       : colorScheme.surfaceContainerHigh;
 
-  final textTheme = Typography.material2021(platform: TargetPlatform.android).copyWith(
+  final textTheme = TextTheme(
     displaySmall: TextStyle(
       fontSize: 36,
       fontWeight: FontWeight.w600,
@@ -171,7 +185,10 @@ ThemeData _buildTheme(Brightness brightness) {
       scrolledUnderElevation: 0,
       backgroundColor: surfaceColor,
       foregroundColor: colorScheme.onSurface,
-      titleTextStyle: textTheme.titleLarge!.copyWith(fontWeight: FontWeight.w600, color: colorScheme.onSurface),
+      titleTextStyle: textTheme.titleLarge!.copyWith(
+        fontWeight: FontWeight.w600,
+        color: colorScheme.onSurface,
+      ),
       elevation: 0,
       shadowColor: Colors.transparent,
       surfaceTintColor: colorScheme.surfaceTint,
@@ -195,7 +212,9 @@ ThemeData _buildTheme(Brightness brightness) {
       fillColor: colorScheme.surfaceContainerHighest,
       prefixIconColor: colorScheme.onSurfaceVariant,
       suffixIconColor: colorScheme.onSurfaceVariant,
-      labelStyle: textTheme.bodyMedium!.copyWith(color: colorScheme.onSurfaceVariant),
+      labelStyle: textTheme.bodyMedium!.copyWith(
+        color: colorScheme.onSurfaceVariant,
+      ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(_kBorderRadiusSmall),
         borderSide: BorderSide.none,
@@ -219,7 +238,9 @@ ThemeData _buildTheme(Brightness brightness) {
       backgroundColor: colorScheme.surfaceContainerHighest,
       selectedColor: colorScheme.primaryContainer,
       labelStyle: textTheme.bodyMedium!.copyWith(color: colorScheme.onSurface),
-      secondaryLabelStyle: textTheme.bodyMedium!.copyWith(color: colorScheme.onPrimaryContainer),
+      secondaryLabelStyle: textTheme.bodyMedium!.copyWith(
+        color: colorScheme.onPrimaryContainer,
+      ),
       checkmarkColor: colorScheme.onPrimaryContainer,
     ),
     // Divider
@@ -257,23 +278,28 @@ ThemeData _buildTheme(Brightness brightness) {
     ),
     // Buttons
     filledButtonTheme: FilledButtonThemeData(
-      style: FilledButton.styleFrom(
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_kBorderRadiusSmall)),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        textStyle: textTheme.labelLarge,
-      ).copyWith(
-        backgroundColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.disabled)) {
-            return colorScheme.onSurface.withOpacity(0.12);
-          }
-          return null; // fallback to default filled button color (primary)
-        }),
-      ),
+      style:
+          FilledButton.styleFrom(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_kBorderRadiusSmall),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            textStyle: textTheme.labelLarge,
+          ).copyWith(
+            backgroundColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.disabled)) {
+                return colorScheme.onSurface.withValues(alpha: 0.12);
+              }
+              return null; // fallback to default filled button color (primary)
+            }),
+          ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_kBorderRadiusSmall)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(_kBorderRadiusSmall),
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         textStyle: textTheme.labelLarge,
       ),
@@ -295,35 +321,47 @@ ThemeData _buildTheme(Brightness brightness) {
       ),
       elevation: 0,
     ),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
       backgroundColor: cardColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_kBorderRadiusModal)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_kBorderRadiusModal),
+      ),
       elevation: 0,
     ),
     // SnackBar
     snackBarTheme: SnackBarThemeData(
       backgroundColor: colorScheme.inverseSurface,
-      contentTextStyle: textTheme.bodyMedium!.copyWith(color: colorScheme.onInverseSurface),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_kBorderRadiusSmall)),
+      contentTextStyle: textTheme.bodyMedium!.copyWith(
+        color: colorScheme.onInverseSurface,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_kBorderRadiusSmall),
+      ),
       behavior: SnackBarBehavior.floating,
       elevation: 0,
     ),
     // ListTile
     listTileTheme: ListTileThemeData(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_kBorderRadiusSmall)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_kBorderRadiusSmall),
+      ),
       tileColor: Colors.transparent,
-      selectedTileColor: colorScheme.primaryContainer.withOpacity(0.24),
+      selectedTileColor: colorScheme.primaryContainer.withValues(alpha: 0.24),
     ),
     // PopupMenu
     popupMenuTheme: PopupMenuThemeData(
       color: cardColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_kBorderRadiusSmall)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_kBorderRadiusSmall),
+      ),
       elevation: 0,
     ),
     // Tooltip
     tooltipTheme: TooltipThemeData(
-      textStyle: textTheme.bodySmall!.copyWith(color: colorScheme.onInverseSurface),
+      textStyle: textTheme.bodySmall!.copyWith(
+        color: colorScheme.onInverseSurface,
+      ),
       decoration: BoxDecoration(
         color: colorScheme.inverseSurface,
         borderRadius: BorderRadius.circular(_kBorderRadiusSmall),
