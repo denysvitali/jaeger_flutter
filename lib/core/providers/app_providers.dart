@@ -53,8 +53,15 @@ final traceSearchParamsProvider =
 
 class TraceSearchParamsNotifier extends Notifier<TraceSearchRequest> {
   @override
-  TraceSearchRequest build() =>
-      const TraceSearchRequest(service: '', limit: 20);
+  TraceSearchRequest build() {
+    final now = DateTime.now();
+    return TraceSearchRequest(
+      service: '',
+      limit: 20,
+      endTime: now,
+      startTime: now.subtract(const Duration(hours: 1)),
+    );
+  }
 
   void update(TraceSearchRequest request) {
     state = request;

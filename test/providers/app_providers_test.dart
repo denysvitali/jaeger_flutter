@@ -28,13 +28,19 @@ class _FakeJaegerApi implements JaegerApi {
 
 void main() {
   group('TraceSearchParamsNotifier', () {
-    test('defaults to empty service', () {
+    test('defaults to empty service and a one-hour time window', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
       final params = container.read(traceSearchParamsProvider);
       expect(params.service, '');
       expect(params.limit, 20);
+      expect(params.endTime, isNotNull);
+      expect(params.startTime, isNotNull);
+      expect(
+        params.endTime!.difference(params.startTime!),
+        const Duration(hours: 1),
+      );
     });
 
     test('update changes state', () {

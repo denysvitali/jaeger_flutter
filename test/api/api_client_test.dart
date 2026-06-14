@@ -66,5 +66,19 @@ void main() {
       expect(params['minDuration'], '10ms');
       expect(params['maxDuration'], '1s');
     });
+
+    test('includes start and end timestamps when set', () {
+      final start = DateTime(2026, 6, 14, 10, 0);
+      final end = DateTime(2026, 6, 14, 11, 0);
+      final request = TraceSearchRequest(
+        service: 'jaeger',
+        startTime: start,
+        endTime: end,
+      );
+      final params = request.toQueryParameters();
+
+      expect(params['start'], start.microsecondsSinceEpoch);
+      expect(params['end'], end.microsecondsSinceEpoch);
+    });
   });
 }

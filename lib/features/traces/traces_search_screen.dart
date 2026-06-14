@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 // ignore_for_file: deprecated_member_use
 
@@ -51,12 +52,16 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
 
   String _service = '';
   String? _operation;
+  DateTime? _startTime;
+  DateTime? _endTime;
 
   @override
   void initState() {
     super.initState();
     _service = widget.params.service;
     _operation = widget.params.operation;
+    _startTime = widget.params.startTime;
+    _endTime = widget.params.endTime;
     _tagsController.text =
         widget.params.tags?.entries
             .map((e) => '${e.key}=${e.value}')
@@ -85,12 +90,40 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
     return map.isEmpty ? null : map;
   }
 
+  Future<DateTime?> _pickDateTime(DateTime initial) async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+    );
+    if (date == null || !mounted) return null;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return null;
+
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  void _applyPreset(Duration duration) {
+    final now = DateTime.now();
+    setState(() {
+      _endTime = now;
+      _startTime = now.subtract(duration);
+    });
+  }
+
   Future<void> _search() async {
     final limit = int.tryParse(_limitController.text) ?? 20;
     final request = TraceSearchRequest(
       service: _service,
       operation: _operation,
       tags: _parseTags(_tagsController.text),
+      startTime: _startTime,
+      endTime: _endTime,
       limit: limit,
     );
     await ref.read(tracesNotifierProvider.notifier).search(request);
@@ -143,6 +176,58 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
           Row(
             children: [
               Expanded(
+                child: _DateTimeField(
+                  label: 'Start',
+                  value: _startTime,
+                  onTap: () async {
+                    final picked = await _pickDateTime(
+                      _startTime ?? DateTime.now(),
+                    );
+                    if (picked != null) {
+                      setState(() => _startTime = picked);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _DateTimeField(
+                  label: 'End',
+                  value: _endTime,
+                  onTap: () async {
+                    final picked = await _pickDateTime(
+                      _endTime ?? DateTime.now(),
+                    );
+                    if (picked != null) {
+                      setState(() => _endTime = picked);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              _PresetChip(
+                label: 'Last 1h',
+                onPressed: () => _applyPreset(const Duration(hours: 1)),
+              ),
+              _PresetChip(
+                label: 'Last 24h',
+                onPressed: () => _applyPreset(const Duration(days: 1)),
+              ),
+              _PresetChip(
+                label: 'Last 7d',
+                onPressed: () => _applyPreset(const Duration(days: 7)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
                 flex: 1,
                 child: TextFormField(
                   controller: _limitController,
@@ -165,6 +250,54 @@ class _SearchFormState extends ConsumerState<_SearchForm> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _DateTimeField extends StatelessWidget {
+  const _DateTimeField({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final DateTime? value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value != null ? _dateTimeFormat.format(value!) : '—';
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: InputDecorator(
+        decoration: InputDecoration(labelText: label),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.bodyMedium,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+}
+
+final _dateTimeFormat = DateFormat('yyyy-MM-dd HH:mm');
+
+class _PresetChip extends StatelessWidget {
+  const _PresetChip({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      label: Text(label),
+      onPressed: onPressed,
+      visualDensity: VisualDensity.compact,
     );
   }
 }
