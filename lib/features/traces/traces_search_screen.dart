@@ -38,30 +38,16 @@ class TracesSearchScreen extends ConsumerWidget {
           ),
         ),
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return Column(
-            children: [
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: constraints.maxHeight * 0.55,
-                ),
-                child: SingleChildScrollView(
-                  child: _SearchForm(params: params),
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: traces.when(
-                  data: (items) => _TraceList(traces: items),
-                  loading: () => const _TraceListSkeleton(),
-                  error: (e, _) =>
-                      Center(child: Text('Failed to load traces: $e')),
-                ),
-              ),
-            ],
-          );
-        },
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+          SliverToBoxAdapter(child: _SearchForm(params: params)),
+          const SliverToBoxAdapter(child: Divider(height: 1)),
+        ],
+        body: traces.when(
+          data: (items) => _TraceList(traces: items),
+          loading: () => const _TraceListSkeleton(),
+          error: (e, _) => Center(child: Text('Failed to load traces: $e')),
+        ),
       ),
     );
   }
