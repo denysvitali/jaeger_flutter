@@ -17,6 +17,7 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
   bool _verifying = false;
   String? _resultMessage;
   bool _resultIsError = false;
+  bool _loadingUrl = true;
 
   @override
   void initState() {
@@ -29,7 +30,10 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
     final serverConfig = ref.read(serverConfigProvider);
     final url = await serverConfig.getServerUrl();
     if (mounted) {
-      _urlController.text = url;
+      setState(() {
+        _urlController.text = url;
+        _loadingUrl = false;
+      });
     }
   }
 
@@ -70,73 +74,112 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     final certStatus = ref.watch(certificateStatusProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(
+        title: Text(
+          'Settings',
+          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Primary card: Server URL
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Jaeger server',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _urlController,
-                      decoration: const InputDecoration(
-                        hintText: 'http://jaeger.example.com:16686',
-                        labelText: 'Server URL',
-                        border: OutlineInputBorder(),
+            child: IntrinsicHeight(
+              child: Row(
+                children: [
+                  Container(
+                    width: 4,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary,
+                      borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(16),
                       ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Server URL is required';
-                        }
-                        return null;
-                      },
                     ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: _verifying ? null : _verifyAndSave,
-                        child: _verifying
-                            ? const SizedBox(
-                                height: 18,
-                                width: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Jaeger server', style: textTheme.titleMedium),
+                            const SizedBox(height: 12),
+                            if (_loadingUrl)
+                              _SkeletonUrlField(colorScheme: colorScheme)
+                            else
+                              TextFormField(
+                                controller: _urlController,
+                                decoration: const InputDecoration(
+                                  hintText: 'http://jaeger.example.com:16686',
+                                  labelText: 'Server URL',
+                                  prefixIcon: Icon(Icons.link),
                                 ),
-                              )
-                            : const Text('Verify & save'),
-                      ),
-                    ),
-                    if (_resultMessage != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        _resultMessage!,
-                        style: TextStyle(
-                          color: _resultIsError
-                              ? Theme.of(context).colorScheme.error
-                              : Theme.of(context).colorScheme.primary,
+                                validator: (value) {
+                                  if (value == null || value.trim().isEmpty) {
+                                    return 'Server URL is required';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _verifying ? null : _verifyAndSave,
+                                icon: _verifying
+                                    ? const SizedBox(
+                                        height: 18,
+                                        width: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.check_circle),
+                                label: const Text('Verify & save'),
+                              ),
+                            ),
+                            if (_resultMessage != null) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _resultIsError
+                                      ? colorScheme.errorContainer
+                                      : colorScheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  _resultMessage!,
+                                  style: textTheme.bodyMedium?.copyWith(
+                                    color: _resultIsError
+                                        ? colorScheme.onErrorContainer
+                                        : colorScheme.onPrimaryContainer,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
-                    ],
-                  ],
-                ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
           const SizedBox(height: 16),
+          // Secondary card: Certificates
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -144,29 +187,81 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
                 data: (status) => Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'User certificates',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
+                    Text('User certificates', style: textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    Text(
-                      status.message,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
+                    Text(status.message, style: textTheme.bodyMedium),
                     const SizedBox(height: 8),
                     Text(
                       'Supported: ${status.supported ? 'yes' : 'no'}',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: textTheme.bodySmall,
                     ),
                   ],
                 ),
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Text('Certificate status error: $e'),
+                error: (e, _) => Text(
+                  'Certificate status error: $e',
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.error,
+                  ),
+                ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SkeletonUrlField extends StatefulWidget {
+  const _SkeletonUrlField({required this.colorScheme});
+
+  final ColorScheme colorScheme;
+
+  @override
+  State<_SkeletonUrlField> createState() => _SkeletonUrlFieldState();
+}
+
+class _SkeletonUrlFieldState extends State<_SkeletonUrlField>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _animation = Tween<double>(
+      begin: 0.3,
+      end: 0.7,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _animation.value,
+          child: Container(
+            height: 56,
+            decoration: BoxDecoration(
+              color: widget.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -21,6 +21,10 @@ class TraceDetailScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trace'),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -408,30 +412,51 @@ class _TraceHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _MiniTraceTimeline(
-            trace: trace,
-            traceStartUs: startUs,
-            traceDurationUs: durationUs,
+          RepaintBoundary(
+            child: _MiniTraceTimeline(
+              trace: trace,
+              traceStartUs: startUs,
+              traceDurationUs: durationUs,
+            ),
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.zoom_out),
-                tooltip: 'Zoom out',
-                onPressed: scale > 1.0 ? onZoomOut : null,
+          Card(
+            color: colorScheme.surfaceContainerHighest,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton.filledTonal(
+                    icon: const Icon(Icons.zoom_out),
+                    tooltip: 'Zoom out',
+                    onPressed: scale > 1.0 ? onZoomOut : null,
+                  ),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 150),
+                    transitionBuilder: (child, animation) =>
+                        FadeTransition(opacity: animation, child: child),
+                    child: Text(
+                      '${(scale * 100).toStringAsFixed(0)}%',
+                      key: ValueKey<double>(scale),
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    icon: const Icon(Icons.zoom_in),
+                    tooltip: 'Zoom in',
+                    onPressed: scale < 20.0 ? onZoomIn : null,
+                  ),
+                  TextButton(
+                    onPressed: scale > 1.0 ? onResetZoom : null,
+                    child: const Text('Reset'),
+                  ),
+                ],
               ),
-              Text('${(scale * 100).toStringAsFixed(0)}%'),
-              IconButton(
-                icon: const Icon(Icons.zoom_in),
-                tooltip: 'Zoom in',
-                onPressed: scale < 20.0 ? onZoomIn : null,
-              ),
-              TextButton(
-                onPressed: scale > 1.0 ? onResetZoom : null,
-                child: const Text('Reset'),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -451,7 +476,9 @@ class _MetaChip extends StatelessWidget {
     return Chip(
       avatar: Icon(icon, size: 16, color: colorScheme.primary),
       label: Text(label),
-      padding: EdgeInsets.zero,
+      shape: const StadiumBorder(),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      backgroundColor: colorScheme.surfaceContainerHighest,
       labelPadding: const EdgeInsets.only(right: 8),
     );
   }
@@ -546,6 +573,7 @@ class _TimelineAxisHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return SizedBox(
       height: 28,
       child: Row(
@@ -554,7 +582,11 @@ class _TimelineAxisHeader extends StatelessWidget {
           SizedBox(
             width: width,
             child: CustomPaint(
-              painter: _AxisPainter(durationUs: durationUs),
+              painter: _AxisPainter(
+                durationUs: durationUs,
+                textColor: colorScheme.onSurfaceVariant,
+                lineColor: colorScheme.outlineVariant,
+              ),
               size: Size(width, 28),
             ),
           ),
@@ -565,22 +597,24 @@ class _TimelineAxisHeader extends StatelessWidget {
 }
 
 class _AxisPainter extends CustomPainter {
-  _AxisPainter({required this.durationUs});
+  _AxisPainter({
+    required this.durationUs,
+    required this.textColor,
+    required this.lineColor,
+  });
 
   final int durationUs;
+  final Color textColor;
+  final Color lineColor;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (durationUs <= 0) return;
 
     final ticks = timelineTicks(durationUs);
-    final textStyle = TextStyle(
-      color: Colors.grey[600],
-      fontSize: 10,
-      height: 1,
-    );
+    final textStyle = TextStyle(color: textColor, fontSize: 10, height: 1);
     final axisPaint = Paint()
-      ..color = Colors.grey[400]!
+      ..color = lineColor
       ..strokeWidth = 1;
 
     canvas.drawLine(
@@ -609,7 +643,9 @@ class _AxisPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _AxisPainter oldDelegate) {
-    return oldDelegate.durationUs != durationUs;
+    return oldDelegate.durationUs != durationUs ||
+        oldDelegate.textColor != textColor ||
+        oldDelegate.lineColor != lineColor;
   }
 }
 
@@ -795,6 +831,7 @@ class _SpanNode extends StatelessWidget {
                 ),
               ],
             ),
+            const Divider(height: 1),
             if (span.tags.isNotEmpty)
               _DetailSection(
                 title: 'Tags',
@@ -807,6 +844,8 @@ class _SpanNode extends StatelessWidget {
                     )
                     .toList(),
               ),
+            if (span.tags.isNotEmpty && span.logs.isNotEmpty)
+              const Divider(height: 1),
             if (span.logs.isNotEmpty)
               _DetailSection(
                 title: 'Logs',
@@ -861,6 +900,18 @@ class _SpanDetailHeader extends StatelessWidget {
                 ),
               ),
             ),
+            IconButton(
+              icon: const Icon(Icons.copy_outlined, size: 18),
+              tooltip: 'Copy span ID',
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: span.spanID));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Span ID copied')),
+                  );
+                }
+              },
+            ),
           ],
         ),
         const SizedBox(height: 6),
@@ -884,14 +935,27 @@ class _DetailSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      color: colorScheme.surfaceContainerLow,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colorScheme.outlineVariant, width: 1),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: theme.textTheme.titleSmall),
+            Text(
+              title,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             const SizedBox(height: 12),
             ...rows,
           ],
