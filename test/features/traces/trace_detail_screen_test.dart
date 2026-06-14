@@ -48,6 +48,35 @@ void main() {
       // After zooming, the zoomed percentage label should no longer read 100%.
       expect(find.text('100%'), findsNothing);
     });
+
+    testWidgets('renders trace timeline on a phone-sized viewport', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final trace = _generateLargeTrace(spanCount: 25);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            traceProvider(trace.traceID).overrideWith((ref) => trace),
+          ],
+          child: MaterialApp(home: TraceDetailScreen(traceId: trace.traceID)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('25 spans'), findsOneWidget);
+      expect(find.byIcon(Icons.keyboard_arrow_left), findsOneWidget);
+      expect(find.byIcon(Icons.keyboard_arrow_right), findsOneWidget);
+      expect(find.byIcon(Icons.manage_search), findsOneWidget);
+      expect(find.byType(ListView), findsOneWidget);
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 
