@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/api_client.dart';
 
 const _serverUrlKey = 'jaeger_server_url';
+const _serverVerifiedAtKey = 'jaeger_server_verified_at';
 const _defaultServerUrl = 'http://jaeger.monitoring.svc.cluster.local:16686';
 
 class ServerConfig {
@@ -23,8 +24,19 @@ class ServerConfig {
     await _prefs.setString(_serverUrlKey, normalizeServerUrl(url));
   }
 
+  Future<DateTime?> getLastVerifiedAt() async {
+    final value = await _prefs.getString(_serverVerifiedAtKey);
+    if (value == null) return null;
+    return DateTime.tryParse(value);
+  }
+
+  Future<void> setLastVerifiedAt(DateTime value) async {
+    await _prefs.setString(_serverVerifiedAtKey, value.toIso8601String());
+  }
+
   Future<void> clearServerUrl() async {
     await _prefs.remove(_serverUrlKey);
+    await _prefs.remove(_serverVerifiedAtKey);
   }
 }
 

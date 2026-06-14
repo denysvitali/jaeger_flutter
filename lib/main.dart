@@ -54,9 +54,9 @@ Uint8List _derToPem(Uint8List der) {
 // Theme helpers
 // ---------------------------------------------------------------------------
 
-const double _kBorderRadiusSmall = 12;
-const double _kBorderRadiusLarge = 16;
-const double _kBorderRadiusModal = 24;
+const double _kBorderRadiusSmall = 8;
+const double _kBorderRadiusLarge = 8;
+const double _kBorderRadiusModal = 16;
 
 const EdgeInsets _kCardMargin = EdgeInsets.symmetric(
   horizontal: 12,
@@ -112,8 +112,8 @@ CustomTransitionPage<void> buildPageTransition({
 }
 
 ThemeData _buildTheme(Brightness brightness) {
-  const seedColor = Color(0xFFDC382D);
-  const secondaryColor = Color(0xFF0066CC);
+  const seedColor = Color(0xFF007C89);
+  const secondaryColor = Color(0xFF2563EB);
 
   final colorScheme = ColorScheme.fromSeed(
     seedColor: seedColor,
@@ -121,23 +121,25 @@ ThemeData _buildTheme(Brightness brightness) {
     secondary: secondaryColor,
   );
 
-  final surfaceColor = colorScheme.surface;
+  final surfaceColor = brightness == Brightness.light
+      ? const Color(0xFFF7F9FA)
+      : const Color(0xFF0F1720);
 
   final cardColor = brightness == Brightness.light
-      ? colorScheme.surfaceContainerLow
-      : colorScheme.surfaceContainerHigh;
+      ? const Color(0xFFFFFFFF)
+      : const Color(0xFF17212B);
 
   final textTheme = TextTheme(
     displaySmall: TextStyle(
       fontSize: 36,
       fontWeight: FontWeight.w600,
-      letterSpacing: -0.5,
+      letterSpacing: 0,
       color: colorScheme.onSurface,
     ),
     headlineSmall: TextStyle(
       fontSize: 24,
       fontWeight: FontWeight.w600,
-      letterSpacing: -0.5,
+      letterSpacing: 0,
       color: colorScheme.onSurface,
     ),
     titleLarge: TextStyle(

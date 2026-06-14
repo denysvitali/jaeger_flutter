@@ -132,7 +132,7 @@ class _ServicesScreenState extends ConsumerState<ServicesScreen> {
                                   decoration: BoxDecoration(
                                     color: accent,
                                     borderRadius: const BorderRadius.horizontal(
-                                      left: Radius.circular(16),
+                                      left: Radius.circular(8),
                                     ),
                                   ),
                                 ),

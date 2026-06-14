@@ -67,7 +67,11 @@ class _TraceBodyState extends State<_TraceBody> {
 
   final Set<String> _expandedSpanIds = {};
   final ScrollController _horizontalScrollController = ScrollController();
+  final TextEditingController _spanQueryController = TextEditingController();
   double _timelineScale = 1.0;
+  String _spanQuery = '';
+  bool _criticalPathOnly = false;
+  String? _lastOpenedSpanId;
 
   @override
   void initState() {
@@ -82,6 +86,7 @@ class _TraceBodyState extends State<_TraceBody> {
   @override
   void dispose() {
     _horizontalScrollController.dispose();
+    _spanQueryController.dispose();
     super.dispose();
   }
 
@@ -140,6 +145,39 @@ class _TraceBodyState extends State<_TraceBody> {
     return maxDepth;
   }
 
+  Set<String> get _criticalPathSpanIds {
+    final ids = <String>{};
+    Span? current = _roots.isEmpty ? null : _roots.first;
+    while (current != null) {
+      ids.add(current.spanID);
+      final children = _childrenMap[current.spanID] ?? const <Span>[];
+      if (children.isEmpty) break;
+      current = children.reduce((a, b) {
+        final aEnd = a.startTime + a.duration;
+        final bEnd = b.startTime + b.duration;
+        return aEnd >= bEnd ? a : b;
+      });
+    }
+    return ids;
+  }
+
+  List<Span> get _signalSpans {
+    if (widget.trace.spans.isEmpty) return const [];
+    final sortedDurations = widget.trace.spans.map((s) => s.duration).toList()
+      ..sort();
+    final p90Index = (sortedDurations.length * 0.9)
+        .floor()
+        .clamp(0, sortedDurations.length - 1)
+        .toInt();
+    final p90 = sortedDurations[p90Index];
+    final signals = widget.trace.spans.where((span) {
+      return _spanHasError(span) ||
+          (span.warnings?.isNotEmpty ?? false) ||
+          span.duration >= p90;
+    }).toList()..sort((a, b) => a.startTime.compareTo(b.startTime));
+    return signals;
+  }
+
   List<_VisibleSpan> get _visibleSpans {
     final result = <_VisibleSpan>[];
     final stack = <_SpanFrame>[];
@@ -160,7 +198,30 @@ class _TraceBodyState extends State<_TraceBody> {
         }
       }
     }
-    return result;
+
+    Iterable<_VisibleSpan> filtered = result;
+    if (_criticalPathOnly) {
+      final criticalPath = _criticalPathSpanIds;
+      filtered = filtered.where(
+        (item) => criticalPath.contains(item.span.spanID),
+      );
+    }
+    final query = _spanQuery.trim().toLowerCase();
+    if (query.isNotEmpty) {
+      filtered = filtered.where(
+        (item) =>
+            item.span.operationName.toLowerCase().contains(query) ||
+            (_serviceNames[item.span.spanID]?.toLowerCase().contains(query) ??
+                false) ||
+            item.span.tags.any(
+              (tag) =>
+                  tag.key.toLowerCase().contains(query) ||
+                  (tag.value?.toString().toLowerCase().contains(query) ??
+                      false),
+            ),
+      );
+    }
+    return filtered.toList(growable: false);
   }
 
   void _toggleSpan(String spanId) {
@@ -189,6 +250,54 @@ class _TraceBodyState extends State<_TraceBody> {
     setState(() {
       _timelineScale = _minTimelineScale;
     });
+  }
+
+  void _setCriticalPathOnly(bool value) {
+    setState(() {
+      _criticalPathOnly = value;
+      if (value) {
+        _expandedSpanIds.addAll(_criticalPathSpanIds);
+      }
+    });
+  }
+
+  void _applyScaleGesture(double scale) {
+    if (scale == 1.0) return;
+    setState(() {
+      _timelineScale = (_timelineScale * scale)
+          .clamp(_minTimelineScale, _maxTimelineScale)
+          .toDouble();
+    });
+  }
+
+  void _openSignalSpan(int direction) {
+    final signals = _signalSpans;
+    if (signals.isEmpty) return;
+    final currentIndex = signals.indexWhere(
+      (span) => span.spanID == _lastOpenedSpanId,
+    );
+    final nextIndex =
+        (currentIndex == -1
+                ? (direction > 0 ? 0 : signals.length - 1)
+                : (currentIndex + direction).clamp(0, signals.length - 1))
+            .toInt();
+    _openSpanDetails(signals[nextIndex]);
+  }
+
+  void _openSpanDetails(Span span) {
+    setState(() => _lastOpenedSpanId = span.spanID);
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _SpanDetailsSheet(
+        span: span,
+        service: _serviceNames[span.spanID] ?? span.processID,
+        color: serviceColor(_serviceNames[span.spanID] ?? span.processID),
+        signalSpans: _signalSpans,
+        onOpenSpan: _openSpanDetails,
+      ),
+    );
   }
 
   Future<void> _copyTraceJson() async {
@@ -232,6 +341,15 @@ class _TraceBodyState extends State<_TraceBody> {
           onResetZoom: _resetZoom,
           onCopyTraceId: _copyTraceId,
           onCopyTraceJson: _copyTraceJson,
+          spanQueryController: _spanQueryController,
+          spanQuery: _spanQuery,
+          onSpanQueryChanged: (value) => setState(() => _spanQuery = value),
+          criticalPathOnly: _criticalPathOnly,
+          onCriticalPathChanged: _setCriticalPathOnly,
+          onPreviousSignal: _signalSpans.isEmpty
+              ? null
+              : () => _openSignalSpan(-1),
+          onNextSignal: _signalSpans.isEmpty ? null : () => _openSignalSpan(1),
         ),
         const Divider(height: 1),
         Expanded(
@@ -249,49 +367,59 @@ class _TraceBodyState extends State<_TraceBody> {
                   _timelineScale;
               final contentWidth = _labelColumnWidth + timelineWidth;
 
-              return SingleChildScrollView(
-                controller: _horizontalScrollController,
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: contentWidth,
-                  child: Column(
-                    children: [
-                      _TimelineAxisHeader(
-                        startUs: _traceStartUs,
-                        durationUs: _traceDurationUs,
-                        width: timelineWidth,
-                      ),
-                      const Divider(height: 1),
-                      Expanded(
-                        child: visibleSpans.isEmpty
-                            ? const Center(child: Text('No spans in trace'))
-                            : ListView.builder(
-                                itemCount: visibleSpans.length,
-                                itemBuilder: (context, index) {
-                                  final item = visibleSpans[index];
-                                  return RepaintBoundary(
-                                    child: _SpanNode(
-                                      span: item.span,
-                                      depth: item.depth,
-                                      hasChildren: item.hasChildren,
-                                      isExpanded: _expandedSpanIds.contains(
-                                        item.span.spanID,
+              return GestureDetector(
+                onDoubleTap: _resetZoom,
+                onScaleUpdate: (details) {
+                  if ((details.scale - 1).abs() > 0.02) {
+                    _applyScaleGesture(details.scale);
+                  }
+                },
+                child: SingleChildScrollView(
+                  controller: _horizontalScrollController,
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: contentWidth,
+                    child: Column(
+                      children: [
+                        _TimelineAxisHeader(
+                          startUs: _traceStartUs,
+                          durationUs: _traceDurationUs,
+                          width: timelineWidth,
+                        ),
+                        const Divider(height: 1),
+                        Expanded(
+                          child: visibleSpans.isEmpty
+                              ? const Center(child: Text('No spans match'))
+                              : ListView.builder(
+                                  itemCount: visibleSpans.length,
+                                  itemBuilder: (context, index) {
+                                    final item = visibleSpans[index];
+                                    final service =
+                                        _serviceNames[item.span.spanID]!;
+                                    return RepaintBoundary(
+                                      child: _SpanNode(
+                                        span: item.span,
+                                        depth: item.depth,
+                                        hasChildren: item.hasChildren,
+                                        isExpanded: _expandedSpanIds.contains(
+                                          item.span.spanID,
+                                        ),
+                                        onToggle: () =>
+                                            _toggleSpan(item.span.spanID),
+                                        onOpen: () =>
+                                            _openSpanDetails(item.span),
+                                        traceStartUs: _traceStartUs,
+                                        traceDurationUs: _traceDurationUs,
+                                        timelineWidth: timelineWidth,
+                                        service: service,
+                                        serviceColor: serviceColor(service),
                                       ),
-                                      onToggle: () =>
-                                          _toggleSpan(item.span.spanID),
-                                      traceStartUs: _traceStartUs,
-                                      traceDurationUs: _traceDurationUs,
-                                      timelineWidth: timelineWidth,
-                                      service: _serviceNames[item.span.spanID]!,
-                                      serviceColor: serviceColor(
-                                        _serviceNames[item.span.spanID]!,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -336,6 +464,13 @@ class _TraceHeader extends StatelessWidget {
     required this.onResetZoom,
     required this.onCopyTraceId,
     required this.onCopyTraceJson,
+    required this.spanQueryController,
+    required this.spanQuery,
+    required this.onSpanQueryChanged,
+    required this.criticalPathOnly,
+    required this.onCriticalPathChanged,
+    required this.onPreviousSignal,
+    required this.onNextSignal,
   });
 
   final Trace trace;
@@ -350,6 +485,13 @@ class _TraceHeader extends StatelessWidget {
   final VoidCallback onResetZoom;
   final VoidCallback onCopyTraceId;
   final VoidCallback onCopyTraceJson;
+  final TextEditingController spanQueryController;
+  final String spanQuery;
+  final ValueChanged<String> onSpanQueryChanged;
+  final bool criticalPathOnly;
+  final ValueChanged<bool> onCriticalPathChanged;
+  final VoidCallback? onPreviousSignal;
+  final VoidCallback? onNextSignal;
 
   @override
   Widget build(BuildContext context) {
@@ -424,7 +566,7 @@ class _TraceHeader extends StatelessWidget {
             color: colorScheme.surfaceContainerHighest,
             elevation: 0,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -457,6 +599,49 @@ class _TraceHeader extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: spanQueryController,
+                  onChanged: onSpanQueryChanged,
+                  decoration: InputDecoration(
+                    hintText: 'Find spans, tags, or services',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: spanQuery.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.clear),
+                            tooltip: 'Clear span search',
+                            onPressed: () {
+                              spanQueryController.clear();
+                              onSpanQueryChanged('');
+                            },
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                icon: const Icon(Icons.keyboard_arrow_up),
+                tooltip: 'Previous signal span',
+                onPressed: onPreviousSignal,
+              ),
+              IconButton.filledTonal(
+                icon: const Icon(Icons.keyboard_arrow_down),
+                tooltip: 'Next signal span',
+                onPressed: onNextSignal,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          FilterChip(
+            avatar: const Icon(Icons.route_outlined, size: 16),
+            label: const Text('Critical path'),
+            selected: criticalPathOnly,
+            onSelected: onCriticalPathChanged,
           ),
         ],
       ),
@@ -658,6 +843,7 @@ class _SpanNode extends StatelessWidget {
     required this.hasChildren,
     required this.isExpanded,
     required this.onToggle,
+    required this.onOpen,
     required this.traceStartUs,
     required this.traceDurationUs,
     required this.timelineWidth,
@@ -670,6 +856,7 @@ class _SpanNode extends StatelessWidget {
   final bool hasChildren;
   final bool isExpanded;
   final VoidCallback onToggle;
+  final VoidCallback onOpen;
   final int traceStartUs;
   final int traceDurationUs;
   final double timelineWidth;
@@ -685,13 +872,12 @@ class _SpanNode extends StatelessWidget {
         : ((span.startTime - traceStartUs) / durationUs) * timelineWidth;
     final barWidth = durationUs <= 0
         ? 2.0
-        : (span.duration / durationUs * timelineWidth).clamp(
-            2.0,
-            timelineWidth,
-          );
+        : (span.duration / durationUs * timelineWidth)
+              .clamp(2.0, timelineWidth)
+              .toDouble();
 
     return InkWell(
-      onTap: () => _showSpanDetails(context),
+      onTap: onOpen,
       child: Row(
         children: [
           SizedBox(
@@ -794,76 +980,143 @@ class _SpanNode extends StatelessWidget {
       ),
     );
   }
+}
 
-  void _showSpanDetails(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.55,
-        minChildSize: 0.3,
-        maxChildSize: 0.9,
-        builder: (context, scrollController) => ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-          children: [
-            _SpanDetailHeader(
-              span: span,
-              service: service,
-              color: serviceColor,
-            ),
-            const SizedBox(height: 16),
+class _SpanDetailsSheet extends StatelessWidget {
+  const _SpanDetailsSheet({
+    required this.span,
+    required this.service,
+    required this.color,
+    required this.signalSpans,
+    required this.onOpenSpan,
+  });
+
+  final Span span;
+  final String service;
+  final Color color;
+  final List<Span> signalSpans;
+  final ValueChanged<Span> onOpenSpan;
+
+  @override
+  Widget build(BuildContext context) {
+    final priorityTags = span.tags.where(_isPriorityTag).toList();
+    final otherTags = span.tags.where((tag) => !_isPriorityTag(tag)).toList();
+    final signalIndex = signalSpans.indexWhere(
+      (item) => item.spanID == span.spanID,
+    );
+    final previousSignal = signalIndex > 0
+        ? signalSpans[signalIndex - 1]
+        : null;
+    final nextSignal = signalIndex >= 0 && signalIndex < signalSpans.length - 1
+        ? signalSpans[signalIndex + 1]
+        : null;
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.62,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      builder: (context, scrollController) => ListView(
+        controller: scrollController,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+        children: [
+          _SpanDetailHeader(span: span, service: service, color: color),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.keyboard_arrow_up),
+                  label: const Text('Previous signal'),
+                  onPressed: previousSignal == null
+                      ? null
+                      : () => _openFromSheet(context, previousSignal),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.keyboard_arrow_down),
+                  label: const Text('Next signal'),
+                  onPressed: nextSignal == null
+                      ? null
+                      : () => _openFromSheet(context, nextSignal),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _DetailSection(
+            title: 'Summary',
+            rows: [
+              _DetailRow(label: 'Span ID', value: span.spanID),
+              _DetailRow(label: 'Trace ID', value: span.traceID),
+              _DetailRow(label: 'Service', value: service),
+              _DetailRow(
+                label: 'Duration',
+                value: formatDuration(span.duration),
+              ),
+              _DetailRow(
+                label: 'Start time',
+                value: formatTimeOfDay(span.startTime),
+              ),
+            ],
+          ),
+          if (span.warnings?.isNotEmpty ?? false)
             _DetailSection(
-              title: 'Details',
-              rows: [
-                _DetailRow(label: 'Span ID', value: span.spanID),
-                _DetailRow(label: 'Trace ID', value: span.traceID),
-                _DetailRow(label: 'Service', value: service),
-                _DetailRow(
-                  label: 'Duration',
-                  value: formatDuration(span.duration),
-                ),
-                _DetailRow(
-                  label: 'Start time',
-                  value: formatTimeOfDay(span.startTime),
-                ),
-              ],
+              title: 'Warnings',
+              rows: span.warnings!
+                  .map(
+                    (warning) => _DetailRow(label: 'Warning', value: warning),
+                  )
+                  .toList(),
             ),
-            const Divider(height: 1),
-            if (span.tags.isNotEmpty)
-              _DetailSection(
-                title: 'Tags',
-                rows: span.tags
-                    .map(
-                      (t) => _DetailRow(
-                        label: t.key,
-                        value: t.value?.toString() ?? '',
-                      ),
-                    )
-                    .toList(),
-              ),
-            if (span.tags.isNotEmpty && span.logs.isNotEmpty)
-              const Divider(height: 1),
-            if (span.logs.isNotEmpty)
-              _DetailSection(
-                title: 'Logs',
-                rows: span.logs
-                    .map(
-                      (log) => _DetailRow(
-                        label: formatTimeOfDay(log.timestamp),
-                        value: log.fields
-                            .map((f) => '${f.key}=${f.value}')
-                            .join(', '),
-                      ),
-                    )
-                    .toList(),
-              ),
-          ],
-        ),
+          if (priorityTags.isNotEmpty)
+            _DetailSection(
+              title: 'Key fields',
+              rows: priorityTags
+                  .map(
+                    (tag) => _DetailRow(
+                      label: tag.key,
+                      value: tag.value?.toString() ?? '',
+                    ),
+                  )
+                  .toList(),
+            ),
+          if (otherTags.isNotEmpty)
+            _DetailSection(
+              title: 'Tags',
+              rows: otherTags
+                  .map(
+                    (tag) => _DetailRow(
+                      label: tag.key,
+                      value: tag.value?.toString() ?? '',
+                    ),
+                  )
+                  .toList(),
+            ),
+          if (span.logs.isNotEmpty)
+            _DetailSection(
+              title: 'Logs',
+              rows: span.logs
+                  .map(
+                    (log) => _DetailRow(
+                      label: formatTimeOfDay(log.timestamp),
+                      value: log.fields
+                          .map((field) => '${field.key}=${field.value}')
+                          .join(', '),
+                    ),
+                  )
+                  .toList(),
+            ),
+        ],
       ),
     );
+  }
+
+  void _openFromSheet(BuildContext context, Span target) {
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) => onOpenSpan(target));
   }
 }
 
@@ -941,7 +1194,7 @@ class _DetailSection extends StatelessWidget {
       color: colorScheme.surfaceContainerLow,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: colorScheme.outlineVariant, width: 1),
       ),
       child: Padding(
@@ -991,8 +1244,44 @@ class _DetailRow extends StatelessWidget {
           Expanded(
             child: SelectableText(value, style: theme.textTheme.bodyMedium),
           ),
+          IconButton(
+            icon: const Icon(Icons.copy_outlined, size: 16),
+            tooltip: 'Copy value',
+            visualDensity: VisualDensity.compact,
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: value));
+              if (context.mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Value copied')));
+              }
+            },
+          ),
         ],
       ),
     );
   }
+}
+
+bool _isPriorityTag(KeyValue tag) {
+  final key = tag.key.toLowerCase();
+  return key == 'error' ||
+      key.contains('status') ||
+      key.startsWith('http.') ||
+      key.startsWith('db.') ||
+      key.startsWith('rpc.') ||
+      key.contains('exception');
+}
+
+bool _spanHasError(Span span) {
+  for (final tag in span.tags) {
+    final key = tag.key.toLowerCase();
+    final value = tag.value?.toString().toLowerCase() ?? '';
+    if (key == 'error' && value == 'true') return true;
+    if (key.contains('status_code')) {
+      final code = int.tryParse(value);
+      if (code != null && code >= 500) return true;
+    }
+  }
+  return false;
 }

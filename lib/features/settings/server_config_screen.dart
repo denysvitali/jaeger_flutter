@@ -18,6 +18,7 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
   String? _resultMessage;
   bool _resultIsError = false;
   bool _loadingUrl = true;
+  DateTime? _lastVerifiedAt;
 
   @override
   void initState() {
@@ -34,6 +35,10 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
         _urlController.text = url;
         _loadingUrl = false;
       });
+    }
+    final lastVerifiedAt = await serverConfig.getLastVerifiedAt();
+    if (mounted) {
+      setState(() => _lastVerifiedAt = lastVerifiedAt);
     }
   }
 
@@ -56,12 +61,16 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
     if (!mounted) return;
 
     if (result is ServerUrlVerified) {
-      await ref.read(serverConfigProvider).setServerUrl(result.url);
+      final serverConfig = ref.read(serverConfigProvider);
+      await serverConfig.setServerUrl(result.url);
+      final verifiedAt = DateTime.now();
+      await serverConfig.setLastVerifiedAt(verifiedAt);
       await ref.read(servicesNotifierProvider.notifier).refresh();
       setState(() {
         _verifying = false;
         _resultMessage = 'Saved and verified: ${result.url}';
         _resultIsError = false;
+        _lastVerifiedAt = verifiedAt;
       });
     } else if (result is ServerUrlFailed) {
       setState(() {
@@ -88,7 +97,48 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Primary card: Server URL
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    _lastVerifiedAt == null
+                        ? Icons.info_outline
+                        : Icons.check_circle_outline,
+                    color: _lastVerifiedAt == null
+                        ? colorScheme.onSurfaceVariant
+                        : colorScheme.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Connection', style: textTheme.titleMedium),
+                        const SizedBox(height: 4),
+                        Text(
+                          _lastVerifiedAt == null
+                              ? 'No successful verification has been recorded on this device.'
+                              : 'Last verified ${_formatVerifiedAt(_lastVerifiedAt!)}',
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Use the Jaeger query UI base URL, for example http://localhost:16686 or an in-cluster query service URL.',
+                          style: textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           Card(
             child: IntrinsicHeight(
               child: Row(
@@ -98,7 +148,7 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
                     decoration: BoxDecoration(
                       color: colorScheme.primary,
                       borderRadius: const BorderRadius.horizontal(
-                        left: Radius.circular(16),
+                        left: Radius.circular(8),
                       ),
                     ),
                   ),
@@ -118,7 +168,7 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
                               TextFormField(
                                 controller: _urlController,
                                 decoration: const InputDecoration(
-                                  hintText: 'http://jaeger.example.com:16686',
+                                  hintText: 'http://localhost:16686',
                                   labelText: 'Server URL',
                                   prefixIcon: Icon(Icons.link),
                                 ),
@@ -157,7 +207,7 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
                                   color: _resultIsError
                                       ? colorScheme.errorContainer
                                       : colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
                                   _resultMessage!,
@@ -179,7 +229,6 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          // Secondary card: Certificates
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -194,6 +243,13 @@ class _ServerConfigScreenState extends ConsumerState<ServerConfigScreen> {
                     Text(
                       'Supported: ${status.supported ? 'yes' : 'no'}',
                       style: textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'If HTTPS verification fails with a custom CA, install that CA in the Android user trust store and retry verification.',
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -257,11 +313,21 @@ class _SkeletonUrlFieldState extends State<_SkeletonUrlField>
             height: 56,
             decoration: BoxDecoration(
               color: widget.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(8),
             ),
           ),
         );
       },
     );
   }
+}
+
+String _formatVerifiedAt(DateTime value) {
+  final local = value.toLocal();
+  final year = local.year.toString().padLeft(4, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$year-$month-$day $hour:$minute';
 }

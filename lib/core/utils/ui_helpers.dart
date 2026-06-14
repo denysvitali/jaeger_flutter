@@ -6,22 +6,22 @@ import 'package:intl/intl.dart';
 
 /// A curated set of distinct colors used to identify services consistently.
 const _serviceColors = <Color>[
-  Color(0xFFDC382D), // Jaeger red
-  Color(0xFF1F77B4),
-  Color(0xFFFF7F0E),
-  Color(0xFF2CA02C),
-  Color(0xFF9467BD),
-  Color(0xFF8C564B),
-  Color(0xFFE377C2),
-  Color(0xFF7F7F7F),
-  Color(0xFFBCBD22),
-  Color(0xFF17BECF),
-  Color(0xFFAEC7E8),
-  Color(0xFFFFBB78),
-  Color(0xFF98DF8A),
-  Color(0xFFC5B0D5),
-  Color(0xFFC49C94),
-  Color(0xFFF7B6D2),
+  Color(0xFF007C89),
+  Color(0xFF2563EB),
+  Color(0xFF0891B2),
+  Color(0xFF16A34A),
+  Color(0xFF7C3AED),
+  Color(0xFF0F766E),
+  Color(0xFF475569),
+  Color(0xFF4F46E5),
+  Color(0xFF0EA5E9),
+  Color(0xFF65A30D),
+  Color(0xFF0284C7),
+  Color(0xFF059669),
+  Color(0xFF6D28D9),
+  Color(0xFF155E75),
+  Color(0xFF64748B),
+  Color(0xFF0369A1),
 ];
 
 /// Returns a stable color for the given [service] name.
