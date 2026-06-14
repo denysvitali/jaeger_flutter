@@ -354,12 +354,12 @@ class _TraceBodyState extends State<_TraceBody> {
           (item) => item.span.spanID == span.spanID,
         );
         if (visibleIndex == -1) return;
-        final rowHeight = _lastCompactLayout ? 46.0 : 48.0;
+        final rowHeight = _lastCompactLayout ? 46.0 : 54.0;
         final position = _verticalScrollController.position;
-        final target = ((visibleIndex * rowHeight) -
-                (position.viewportDimension * 0.25))
-            .clamp(0.0, position.maxScrollExtent)
-            .toDouble();
+        final target =
+            ((visibleIndex * rowHeight) - (position.viewportDimension * 0.25))
+                .clamp(0.0, position.maxScrollExtent)
+                .toDouble();
         position.animateTo(
           target,
           duration: const Duration(milliseconds: 240),
@@ -649,12 +649,11 @@ class _TraceHeader extends StatelessWidget {
                 child: SelectableText(
                   title,
                   maxLines: compact ? 2 : 3,
-                  style: (compact
-                          ? theme.textTheme.titleLarge
-                          : theme.textTheme.headlineSmall)
-                      ?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style:
+                      (compact
+                              ? theme.textTheme.titleLarge
+                              : theme.textTheme.headlineSmall)
+                          ?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
               IconButton(
@@ -1353,7 +1352,7 @@ class _SpanNode extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final compact = labelColumnWidth < 190;
-    final rowHeight = compact ? 46.0 : 48.0;
+    final rowHeight = compact ? 46.0 : 54.0;
     final indent = compact ? 10.0 : 16.0;
     final leftPadding = compact ? 8.0 : 12.0;
     final maxTreeOffset = compact ? 34.0 : double.infinity;
@@ -1420,7 +1419,7 @@ class _SpanNode extends StatelessWidget {
                         ),
                         Positioned(
                           left: left,
-                          top: compact ? 15 : 14,
+                          top: compact ? 15 : 18,
                           width: barWidth,
                           child: Container(
                             height: compact ? 14 : 18,
@@ -1442,7 +1441,7 @@ class _SpanNode extends StatelessWidget {
                         ),
                         Positioned(
                           left: left + barWidth + 4,
-                          top: compact ? 12 : 13,
+                          top: compact ? 12 : 17,
                           child: Text(
                             formatDuration(span.duration),
                             style: theme.textTheme.bodySmall?.copyWith(
@@ -1562,10 +1561,11 @@ class _SpanLabel extends StatelessWidget {
                 children: [
                   Text(
                     span.operationName,
-                    style: (compact
-                            ? theme.textTheme.bodySmall
-                            : theme.textTheme.bodyMedium)
-                        ?.copyWith(fontWeight: FontWeight.w500),
+                    style:
+                        (compact
+                                ? theme.textTheme.bodySmall
+                                : theme.textTheme.bodyMedium)
+                            ?.copyWith(fontWeight: FontWeight.w500),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1814,10 +1814,10 @@ class _SelectedSpanTimelinePainter extends CustomPainter {
     );
     if (traceDurationUs <= 0) return;
 
-    final left = (((span.startTime - traceStartUs) / traceDurationUs) *
-            size.width)
-        .clamp(0.0, size.width)
-        .toDouble();
+    final left =
+        (((span.startTime - traceStartUs) / traceDurationUs) * size.width)
+            .clamp(0.0, size.width)
+            .toDouble();
     final width = (span.duration / traceDurationUs * size.width)
         .clamp(3.0, max(3.0, size.width - left))
         .toDouble();

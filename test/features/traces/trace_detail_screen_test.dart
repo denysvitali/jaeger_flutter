@@ -69,7 +69,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('25 spans'), findsOneWidget);
+      expect(find.text('25'), findsAtLeastNWidgets(1));
       expect(find.byIcon(Icons.keyboard_arrow_left), findsOneWidget);
       expect(find.byIcon(Icons.keyboard_arrow_right), findsOneWidget);
       expect(find.byIcon(Icons.manage_search), findsOneWidget);

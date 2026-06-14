@@ -32,6 +32,10 @@ flutter analyze
 dart format --output=none --set-exit-if-changed .
 ```
 
+Before committing or pushing code changes, run the CI-equivalent formatting
+check with the documented Flutter/Dart wrapper. Do not rely on `git diff
+--check`; it does not catch Dart formatter changes.
+
 Run all tests:
 
 ```bash
