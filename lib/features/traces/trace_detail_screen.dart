@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/models.dart';
@@ -34,90 +38,284 @@ class TraceDetailScreen extends ConsumerWidget {
   }
 }
 
-class _TraceBody extends StatelessWidget {
+class _TraceBody extends StatefulWidget {
   const _TraceBody({required this.trace});
 
   final Trace trace;
 
-  int get _traceStartUs => trace.spans
-      .map((s) => s.startTime)
-      .fold(0, (a, b) => a == 0 || b < a ? b : a);
+  @override
+  State<_TraceBody> createState() => _TraceBodyState();
+}
 
-  int get _traceEndUs {
-    if (trace.spans.isEmpty) return _traceStartUs;
-    var maxEnd = 0;
-    for (final span in trace.spans) {
-      final end = span.startTime + span.duration;
-      if (end > maxEnd) maxEnd = end;
+class _TraceBodyState extends State<_TraceBody> {
+  static const double _minTimelineScale = 1.0;
+  static const double _maxTimelineScale = 20.0;
+  static const double _scaleStep = 1.25;
+
+  late final int _traceStartUs;
+  late final int _traceEndUs;
+  late final int _traceDurationUs;
+  late final List<Span> _roots;
+  late final Map<String, List<Span>> _childrenMap;
+  late final Map<String, String> _serviceNames;
+  late final int _traceDepth;
+  late final int _servicesCount;
+
+  final Set<String> _expandedSpanIds = {};
+  final ScrollController _horizontalScrollController = ScrollController();
+  double _timelineScale = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _precompute();
+    // Expand roots by default so the tree is visible initially.
+    for (final root in _roots) {
+      _expandedSpanIds.add(root.spanID);
     }
-    return maxEnd;
   }
 
-  int get _traceDurationUs => _traceEndUs - _traceStartUs;
-
-  int get _servicesCount =>
-      trace.processes.values.map((p) => p.serviceName).toSet().length;
-
-  int get _traceDepth {
-    int depth(Span span) {
-      final children = _childrenOf(span);
-      if (children.isEmpty) return 1;
-      return 1 + children.map(depth).reduce((a, b) => a > b ? a : b);
-    }
-
-    final roots = trace.spans.where((s) => s.references.isEmpty).toList();
-    if (roots.isEmpty) return 0;
-    return roots.map(depth).reduce((a, b) => a > b ? a : b);
+  @override
+  void dispose() {
+    _horizontalScrollController.dispose();
+    super.dispose();
   }
 
-  List<Span> _childrenOf(Span span) => trace.spans
-      .where(
-        (s) => s.references.any(
-          (r) => r.traceID == span.traceID && r.spanID == span.spanID,
-        ),
-      )
-      .toList();
+  void _precompute() {
+    final spans = widget.trace.spans;
+
+    _traceStartUs = spans.isEmpty
+        ? 0
+        : spans.map((s) => s.startTime).reduce((a, b) => a < b ? a : b);
+    _traceEndUs = spans.isEmpty
+        ? _traceStartUs
+        : spans
+              .map((s) => s.startTime + s.duration)
+              .reduce((a, b) => a > b ? a : b);
+    _traceDurationUs = _traceEndUs - _traceStartUs;
+
+    _childrenMap = {};
+    for (final span in spans) {
+      for (final ref in span.references) {
+        _childrenMap.putIfAbsent(ref.spanID, () => <Span>[]).add(span);
+      }
+    }
+    for (final children in _childrenMap.values) {
+      children.sort((a, b) => a.startTime.compareTo(b.startTime));
+    }
+
+    _roots = spans.where((s) => s.references.isEmpty).toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    _serviceNames = {
+      for (final span in spans)
+        span.spanID:
+            widget.trace.processes[span.processID]?.serviceName ??
+            span.processID,
+    };
+
+    _servicesCount = _serviceNames.values.toSet().length;
+    _traceDepth = _computeDepth();
+  }
+
+  int _computeDepth() {
+    if (_roots.isEmpty) return 0;
+    var maxDepth = 0;
+    final stack = <_SpanFrame>[];
+    for (var i = _roots.length - 1; i >= 0; i--) {
+      stack.add(_SpanFrame(span: _roots[i], depth: 1));
+    }
+    while (stack.isNotEmpty) {
+      final frame = stack.removeLast();
+      if (frame.depth > maxDepth) maxDepth = frame.depth;
+      final children = _childrenMap[frame.span.spanID] ?? [];
+      for (var i = children.length - 1; i >= 0; i--) {
+        stack.add(_SpanFrame(span: children[i], depth: frame.depth + 1));
+      }
+    }
+    return maxDepth;
+  }
+
+  List<_VisibleSpan> get _visibleSpans {
+    final result = <_VisibleSpan>[];
+    final stack = <_SpanFrame>[];
+    for (var i = _roots.length - 1; i >= 0; i--) {
+      stack.add(_SpanFrame(span: _roots[i], depth: 0));
+    }
+    while (stack.isNotEmpty) {
+      final frame = stack.removeLast();
+      final span = frame.span;
+      final children = _childrenMap[span.spanID] ?? [];
+      final hasChildren = children.isNotEmpty;
+      result.add(
+        _VisibleSpan(span: span, depth: frame.depth, hasChildren: hasChildren),
+      );
+      if (_expandedSpanIds.contains(span.spanID) && hasChildren) {
+        for (var i = children.length - 1; i >= 0; i--) {
+          stack.add(_SpanFrame(span: children[i], depth: frame.depth + 1));
+        }
+      }
+    }
+    return result;
+  }
+
+  void _toggleSpan(String spanId) {
+    setState(() {
+      if (_expandedSpanIds.contains(spanId)) {
+        _expandedSpanIds.remove(spanId);
+      } else {
+        _expandedSpanIds.add(spanId);
+      }
+    });
+  }
+
+  void _zoomIn() {
+    setState(() {
+      _timelineScale = min(_timelineScale * _scaleStep, _maxTimelineScale);
+    });
+  }
+
+  void _zoomOut() {
+    setState(() {
+      _timelineScale = max(_timelineScale / _scaleStep, _minTimelineScale);
+    });
+  }
+
+  void _resetZoom() {
+    setState(() {
+      _timelineScale = _minTimelineScale;
+    });
+  }
+
+  Future<void> _copyTraceJson() async {
+    final json = jsonEncode(widget.trace.toJson());
+    await Clipboard.setData(ClipboardData(text: json));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Trace JSON copied to clipboard')),
+      );
+    }
+  }
+
+  Future<void> _copyTraceId() async {
+    await Clipboard.setData(ClipboardData(text: widget.trace.traceID));
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Trace ID copied')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final roots = trace.spans.where((s) => s.references.isEmpty).toList();
-    final rootSpan = roots.isNotEmpty ? roots.first : null;
-    final title = rootSpan?.operationName ?? trace.traceID;
+    final rootSpan = _roots.isNotEmpty ? _roots.first : null;
+    final title = rootSpan?.operationName ?? widget.trace.traceID;
+    final visibleSpans = _visibleSpans;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _TraceHeader(
-          trace: trace,
+          trace: widget.trace,
           title: title,
           startUs: _traceStartUs,
           durationUs: _traceDurationUs,
           servicesCount: _servicesCount,
           depth: _traceDepth,
-        ),
-        const Divider(height: 1),
-        _TimelineAxisHeader(
-          startUs: _traceStartUs,
-          durationUs: _traceDurationUs,
+          scale: _timelineScale,
+          onZoomIn: _zoomIn,
+          onZoomOut: _zoomOut,
+          onResetZoom: _resetZoom,
+          onCopyTraceId: _copyTraceId,
+          onCopyTraceJson: _copyTraceJson,
         ),
         const Divider(height: 1),
         Expanded(
-          child: roots.isEmpty
-              ? const Center(child: Text('No spans in trace'))
-              : ListView.builder(
-                  itemCount: roots.length,
-                  itemBuilder: (context, index) => _SpanNode(
-                    trace: trace,
-                    span: roots[index],
-                    depth: 0,
-                    traceStartUs: _traceStartUs,
-                    traceDurationUs: _traceDurationUs,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final viewportWidth = constraints.maxWidth;
+              final timelineWidth =
+                  max(
+                    (viewportWidth - _labelColumnWidth).clamp(
+                      300.0,
+                      double.infinity,
+                    ),
+                    300.0,
+                  ) *
+                  _timelineScale;
+              final contentWidth = _labelColumnWidth + timelineWidth;
+
+              return SingleChildScrollView(
+                controller: _horizontalScrollController,
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: contentWidth,
+                  child: Column(
+                    children: [
+                      _TimelineAxisHeader(
+                        startUs: _traceStartUs,
+                        durationUs: _traceDurationUs,
+                        width: timelineWidth,
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: visibleSpans.isEmpty
+                            ? const Center(child: Text('No spans in trace'))
+                            : ListView.builder(
+                                itemCount: visibleSpans.length,
+                                itemBuilder: (context, index) {
+                                  final item = visibleSpans[index];
+                                  return RepaintBoundary(
+                                    child: _SpanNode(
+                                      span: item.span,
+                                      depth: item.depth,
+                                      hasChildren: item.hasChildren,
+                                      isExpanded: _expandedSpanIds.contains(
+                                        item.span.spanID,
+                                      ),
+                                      onToggle: () =>
+                                          _toggleSpan(item.span.spanID),
+                                      traceStartUs: _traceStartUs,
+                                      traceDurationUs: _traceDurationUs,
+                                      timelineWidth: timelineWidth,
+                                      service: _serviceNames[item.span.spanID]!,
+                                      serviceColor: serviceColor(
+                                        _serviceNames[item.span.spanID]!,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
                   ),
                 ),
+              );
+            },
+          ),
         ),
       ],
     );
   }
+}
+
+class _SpanFrame {
+  const _SpanFrame({required this.span, required this.depth});
+
+  final Span span;
+  final int depth;
+}
+
+class _VisibleSpan {
+  const _VisibleSpan({
+    required this.span,
+    required this.depth,
+    required this.hasChildren,
+  });
+
+  final Span span;
+  final int depth;
+  final bool hasChildren;
 }
 
 class _TraceHeader extends StatelessWidget {
@@ -128,6 +326,12 @@ class _TraceHeader extends StatelessWidget {
     required this.durationUs,
     required this.servicesCount,
     required this.depth,
+    required this.scale,
+    required this.onZoomIn,
+    required this.onZoomOut,
+    required this.onResetZoom,
+    required this.onCopyTraceId,
+    required this.onCopyTraceJson,
   });
 
   final Trace trace;
@@ -136,6 +340,12 @@ class _TraceHeader extends StatelessWidget {
   final int durationUs;
   final int servicesCount;
   final int depth;
+  final double scale;
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomOut;
+  final VoidCallback onResetZoom;
+  final VoidCallback onCopyTraceId;
+  final VoidCallback onCopyTraceJson;
 
   @override
   Widget build(BuildContext context) {
@@ -160,12 +370,12 @@ class _TraceHeader extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.copy_outlined, size: 18),
                 tooltip: 'Copy trace ID',
-                onPressed: () {
-                  // Clipboard is not wired in; this keeps the UI honest.
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Trace ID copied')),
-                  );
-                },
+                onPressed: onCopyTraceId,
+              ),
+              IconButton(
+                icon: const Icon(Icons.code, size: 18),
+                tooltip: 'Copy trace as JSON',
+                onPressed: onCopyTraceJson,
               ),
             ],
           ),
@@ -197,11 +407,31 @@ class _TraceHeader extends StatelessWidget {
               _MetaChip(icon: Icons.layers_outlined, label: 'depth $depth'),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _MiniTraceTimeline(
             trace: trace,
             traceStartUs: startUs,
             traceDurationUs: durationUs,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.zoom_out),
+                tooltip: 'Zoom out',
+                onPressed: scale > 1.0 ? onZoomOut : null,
+              ),
+              Text('${(scale * 100).toStringAsFixed(0)}%'),
+              IconButton(
+                icon: const Icon(Icons.zoom_in),
+                tooltip: 'Zoom in',
+                onPressed: scale < 20.0 ? onZoomIn : null,
+              ),
+              TextButton(
+                onPressed: scale > 1.0 ? onResetZoom : null,
+                child: const Text('Reset'),
+              ),
+            ],
           ),
         ],
       ),
@@ -296,14 +526,23 @@ class _MiniTimelinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _MiniTimelinePainter oldDelegate) {
+    return oldDelegate.trace != trace ||
+        oldDelegate.traceStartUs != traceStartUs ||
+        oldDelegate.traceDurationUs != traceDurationUs;
+  }
 }
 
 class _TimelineAxisHeader extends StatelessWidget {
-  const _TimelineAxisHeader({required this.startUs, required this.durationUs});
+  const _TimelineAxisHeader({
+    required this.startUs,
+    required this.durationUs,
+    required this.width,
+  });
 
   final int startUs;
   final int durationUs;
+  final double width;
 
   @override
   Widget build(BuildContext context) {
@@ -312,8 +551,12 @@ class _TimelineAxisHeader extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: _labelColumnWidth),
-          Expanded(
-            child: CustomPaint(painter: _AxisPainter(durationUs: durationUs)),
+          SizedBox(
+            width: width,
+            child: CustomPaint(
+              painter: _AxisPainter(durationUs: durationUs),
+              size: Size(width, 28),
+            ),
           ),
         ],
       ),
@@ -365,186 +608,154 @@ class _AxisPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _AxisPainter oldDelegate) {
+    return oldDelegate.durationUs != durationUs;
+  }
 }
 
 const double _labelColumnWidth = 260;
 
-class _SpanNode extends StatefulWidget {
+class _SpanNode extends StatelessWidget {
   const _SpanNode({
-    required this.trace,
     required this.span,
     required this.depth,
+    required this.hasChildren,
+    required this.isExpanded,
+    required this.onToggle,
     required this.traceStartUs,
     required this.traceDurationUs,
+    required this.timelineWidth,
+    required this.service,
+    required this.serviceColor,
   });
 
-  final Trace trace;
   final Span span;
   final int depth;
+  final bool hasChildren;
+  final bool isExpanded;
+  final VoidCallback onToggle;
   final int traceStartUs;
   final int traceDurationUs;
-
-  @override
-  State<_SpanNode> createState() => _SpanNodeState();
-}
-
-class _SpanNodeState extends State<_SpanNode> {
-  bool _expanded = true;
-
-  List<Span> get _children => widget.trace.spans
-      .where(
-        (s) => s.references.any(
-          (r) =>
-              r.traceID == widget.span.traceID &&
-              r.spanID == widget.span.spanID,
-        ),
-      )
-      .toList();
-
-  String get _service =>
-      widget.trace.processes[widget.span.processID]?.serviceName ??
-      widget.span.processID;
-
-  Color get _serviceColor => serviceColor(_service);
+  final double timelineWidth;
+  final String service;
+  final Color serviceColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasChildren = _children.isNotEmpty;
+    final durationUs = traceDurationUs;
+    final left = durationUs <= 0
+        ? 0.0
+        : ((span.startTime - traceStartUs) / durationUs) * timelineWidth;
+    final barWidth = durationUs <= 0
+        ? 2.0
+        : (span.duration / durationUs * timelineWidth).clamp(
+            2.0,
+            timelineWidth,
+          );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        InkWell(
-          onTap: () => _showSpanDetails(context),
-          child: Row(
-            children: [
-              SizedBox(
-                width: _labelColumnWidth,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: 12 + widget.depth * 16,
-                    top: 8,
-                    bottom: 8,
-                    right: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      if (hasChildren)
-                        GestureDetector(
-                          onTap: () => setState(() => _expanded = !_expanded),
-                          child: AnimatedRotation(
-                            turns: _expanded ? 0 : -0.25,
-                            duration: const Duration(milliseconds: 200),
-                            child: Icon(
-                              Icons.expand_more,
-                              size: 18,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        )
-                      else
-                        const SizedBox(width: 18),
-                      const SizedBox(width: 6),
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: _serviceColor,
-                          shape: BoxShape.circle,
+    return InkWell(
+      onTap: () => _showSpanDetails(context),
+      child: Row(
+        children: [
+          SizedBox(
+            width: _labelColumnWidth,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 12 + depth * 16,
+                top: 8,
+                bottom: 8,
+                right: 8,
+              ),
+              child: Row(
+                children: [
+                  if (hasChildren)
+                    GestureDetector(
+                      onTap: onToggle,
+                      child: AnimatedRotation(
+                        turns: isExpanded ? 0 : -0.25,
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(
+                          Icons.expand_more,
+                          size: 18,
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              widget.span.operationName,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w500,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '$_service · ${formatDuration(widget.span.duration)}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    )
+                  else
+                    const SizedBox(width: 18),
+                  const SizedBox(width: 6),
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: serviceColor,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-              ),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    final durationUs = widget.traceDurationUs;
-                    final left =
-                        ((widget.span.startTime - widget.traceStartUs) /
-                            durationUs) *
-                        width;
-                    final barWidth = (widget.span.duration / durationUs * width)
-                        .clamp(2.0, width);
-
-                    return SizedBox(
-                      height: 40,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Positioned(
-                            left: left,
-                            top: 12,
-                            width: barWidth,
-                            child: Container(
-                              height: 16,
-                              decoration: BoxDecoration(
-                                color: _serviceColor,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          span.operationName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
                           ),
-                          Positioned(
-                            left: left + barWidth + 4,
-                            top: 10,
-                            child: Text(
-                              formatDuration(widget.span.duration),
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                                fontSize: 11,
-                              ),
-                            ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '$service · ${formatDuration(span.duration)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
                           ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
-        const Divider(height: 1, indent: 12),
-        if (_expanded)
-          ..._children.map(
-            (child) => _SpanNode(
-              trace: widget.trace,
-              span: child,
-              depth: widget.depth + 1,
-              traceStartUs: widget.traceStartUs,
-              traceDurationUs: widget.traceDurationUs,
             ),
           ),
-      ],
+          SizedBox(
+            width: timelineWidth,
+            height: 40,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  left: left,
+                  top: 12,
+                  width: barWidth,
+                  child: Container(
+                    height: 16,
+                    decoration: BoxDecoration(
+                      color: serviceColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: left + barWidth + 4,
+                  top: 10,
+                  child: Text(
+                    formatDuration(span.duration),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -563,31 +774,31 @@ class _SpanNodeState extends State<_SpanNode> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
           children: [
             _SpanDetailHeader(
-              span: widget.span,
-              service: _service,
-              color: _serviceColor,
+              span: span,
+              service: service,
+              color: serviceColor,
             ),
             const SizedBox(height: 16),
             _DetailSection(
               title: 'Details',
               rows: [
-                _DetailRow(label: 'Span ID', value: widget.span.spanID),
-                _DetailRow(label: 'Trace ID', value: widget.span.traceID),
-                _DetailRow(label: 'Service', value: _service),
+                _DetailRow(label: 'Span ID', value: span.spanID),
+                _DetailRow(label: 'Trace ID', value: span.traceID),
+                _DetailRow(label: 'Service', value: service),
                 _DetailRow(
                   label: 'Duration',
-                  value: formatDuration(widget.span.duration),
+                  value: formatDuration(span.duration),
                 ),
                 _DetailRow(
                   label: 'Start time',
-                  value: formatTimeOfDay(widget.span.startTime),
+                  value: formatTimeOfDay(span.startTime),
                 ),
               ],
             ),
-            if (widget.span.tags.isNotEmpty)
+            if (span.tags.isNotEmpty)
               _DetailSection(
                 title: 'Tags',
-                rows: widget.span.tags
+                rows: span.tags
                     .map(
                       (t) => _DetailRow(
                         label: t.key,
@@ -596,10 +807,10 @@ class _SpanNodeState extends State<_SpanNode> {
                     )
                     .toList(),
               ),
-            if (widget.span.logs.isNotEmpty)
+            if (span.logs.isNotEmpty)
               _DetailSection(
                 title: 'Logs',
-                rows: widget.span.logs
+                rows: span.logs
                     .map(
                       (log) => _DetailRow(
                         label: formatTimeOfDay(log.timestamp),
