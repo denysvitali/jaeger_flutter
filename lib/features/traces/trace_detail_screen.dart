@@ -55,12 +55,14 @@ class _TraceBodyState extends State<_TraceBody> {
   static const double _minTimelineScale = 1.0;
   static const double _maxTimelineScale = 20.0;
   static const double _scaleStep = 1.25;
+  static final Map<String, _TraceDetailViewState> _viewStateByTraceId = {};
 
   late final int _traceStartUs;
   late final int _traceEndUs;
   late final int _traceDurationUs;
   late final List<Span> _roots;
   late final Map<String, List<Span>> _childrenMap;
+  late final Map<String, String> _parentSpanIds;
   late final Map<String, String> _serviceNames;
   late final int _traceDepth;
   late final int _servicesCount;
@@ -79,26 +81,56 @@ class _TraceBodyState extends State<_TraceBody> {
   String _spanQuery = '';
   bool _criticalPathOnly = false;
   bool _mobileToolsExpanded = false;
+  bool _denseMobileRows = false;
   String? _lastOpenedSpanId;
 
   @override
   void initState() {
     super.initState();
     _precompute();
+    final restoredViewState = _restoreViewState();
     _horizontalScrollController.addListener(_syncTimelineScrollFraction);
-    // Expand roots by default so the tree is visible initially.
-    for (final root in _roots) {
-      _expandedSpanIds.add(root.spanID);
+    if (!restoredViewState) {
+      _expandedSpanIds.addAll(_childrenMap.keys);
     }
   }
 
   @override
   void dispose() {
+    _saveViewState();
     _horizontalScrollController.removeListener(_syncTimelineScrollFraction);
     _horizontalScrollController.dispose();
     _verticalScrollController.dispose();
     _spanQueryController.dispose();
     super.dispose();
+  }
+
+  bool _restoreViewState() {
+    final state = _viewStateByTraceId[_viewStateKey];
+    if (state == null) return false;
+    _expandedSpanIds
+      ..clear()
+      ..addAll(state.expandedSpanIds);
+    _spanQuery = state.spanQuery;
+    _spanQueryController.text = state.spanQuery;
+    _criticalPathOnly = state.criticalPathOnly;
+    _mobileToolsExpanded = state.mobileToolsExpanded;
+    _denseMobileRows = state.denseMobileRows;
+    _lastOpenedSpanId = state.lastOpenedSpanId;
+    _timelineScale = state.timelineScale;
+    return true;
+  }
+
+  void _saveViewState() {
+    _viewStateByTraceId[_viewStateKey] = _TraceDetailViewState(
+      expandedSpanIds: Set<String>.from(_expandedSpanIds),
+      spanQuery: _spanQuery,
+      criticalPathOnly: _criticalPathOnly,
+      mobileToolsExpanded: _mobileToolsExpanded,
+      denseMobileRows: _denseMobileRows,
+      lastOpenedSpanId: _lastOpenedSpanId,
+      timelineScale: _timelineScale,
+    );
   }
 
   void _syncTimelineScrollFraction() {
@@ -118,6 +150,13 @@ class _TraceBodyState extends State<_TraceBody> {
     });
   }
 
+  double get _compactRowScrollExtent =>
+      _CompactSpanNode.rowExtentFor(dense: _denseMobileRows) +
+      _CompactTraceNavigator.rowSpacing;
+
+  String get _viewStateKey =>
+      '${widget.trace.traceID}:${widget.trace.spans.length}';
+
   void _precompute() {
     final spans = widget.trace.spans;
 
@@ -132,9 +171,11 @@ class _TraceBodyState extends State<_TraceBody> {
     _traceDurationUs = _traceEndUs - _traceStartUs;
 
     _childrenMap = {};
+    _parentSpanIds = {};
     for (final span in spans) {
       for (final ref in span.references) {
         _childrenMap.putIfAbsent(ref.spanID, () => <Span>[]).add(span);
+        _parentSpanIds.putIfAbsent(span.spanID, () => ref.spanID);
       }
     }
     for (final children in _childrenMap.values) {
@@ -208,6 +249,10 @@ class _TraceBodyState extends State<_TraceBody> {
 
   List<_VisibleSpan> get _visibleSpans {
     final result = <_VisibleSpan>[];
+    final query = _spanQuery.trim().toLowerCase();
+    final forcedExpandedSpanIds = query.isEmpty
+        ? const <String>{}
+        : _queryExpansionSpanIds(query);
     final stack = <_SpanFrame>[];
     for (var i = _roots.length - 1; i >= 0; i--) {
       stack.add(_SpanFrame(span: _roots[i], depth: 0));
@@ -220,7 +265,10 @@ class _TraceBodyState extends State<_TraceBody> {
       result.add(
         _VisibleSpan(span: span, depth: frame.depth, hasChildren: hasChildren),
       );
-      if (_expandedSpanIds.contains(span.spanID) && hasChildren) {
+      final expanded =
+          _expandedSpanIds.contains(span.spanID) ||
+          forcedExpandedSpanIds.contains(span.spanID);
+      if (expanded && hasChildren) {
         for (var i = children.length - 1; i >= 0; i--) {
           stack.add(_SpanFrame(span: children[i], depth: frame.depth + 1));
         }
@@ -234,22 +282,62 @@ class _TraceBodyState extends State<_TraceBody> {
         (item) => criticalPath.contains(item.span.spanID),
       );
     }
-    final query = _spanQuery.trim().toLowerCase();
     if (query.isNotEmpty) {
+      final matchingIds = _matchingSpanIds(query);
+      final relatedIds = <String>{...matchingIds};
+      for (final id in matchingIds) {
+        relatedIds.addAll(_ancestorSpanIds(id));
+      }
       filtered = filtered.where(
-        (item) =>
-            item.span.operationName.toLowerCase().contains(query) ||
-            (_serviceNames[item.span.spanID]?.toLowerCase().contains(query) ??
-                false) ||
-            item.span.tags.any(
-              (tag) =>
-                  tag.key.toLowerCase().contains(query) ||
-                  (tag.value?.toString().toLowerCase().contains(query) ??
-                      false),
-            ),
+        (item) => relatedIds.contains(item.span.spanID),
       );
     }
     return filtered.toList(growable: false);
+  }
+
+  Set<String> _matchingSpanIds(String query) {
+    return widget.trace.spans
+        .where((span) => _spanMatchesQuery(span, query))
+        .map((span) => span.spanID)
+        .toSet();
+  }
+
+  Set<String> _queryExpansionSpanIds(String query) {
+    final ids = <String>{};
+    for (final spanId in _matchingSpanIds(query)) {
+      ids.addAll(_ancestorSpanIds(spanId));
+    }
+    return ids;
+  }
+
+  Set<String> _ancestorSpanIds(String spanId) {
+    final ids = <String>{};
+    var current = _parentSpanIds[spanId];
+    while (current != null && ids.add(current)) {
+      current = _parentSpanIds[current];
+    }
+    return ids;
+  }
+
+  bool _spanMatchesQuery(Span span, String query) {
+    return span.operationName.toLowerCase().contains(query) ||
+        (_serviceNames[span.spanID]?.toLowerCase().contains(query) ?? false) ||
+        span.tags.any(
+          (tag) =>
+              tag.key.toLowerCase().contains(query) ||
+              (tag.value?.toString().toLowerCase().contains(query) ?? false),
+        );
+  }
+
+  int _descendantCount(String spanId) {
+    var count = 0;
+    final stack = <Span>[...?_childrenMap[spanId]];
+    while (stack.isNotEmpty) {
+      final span = stack.removeLast();
+      count++;
+      stack.addAll(_childrenMap[span.spanID] ?? const <Span>[]);
+    }
+    return count;
   }
 
   void _toggleSpan(String spanId) {
@@ -260,6 +348,28 @@ class _TraceBodyState extends State<_TraceBody> {
         _expandedSpanIds.add(spanId);
       }
     });
+  }
+
+  void _expandAllSpans() {
+    setState(() => _expandedSpanIds.addAll(_childrenMap.keys));
+  }
+
+  void _collapseAllSpans() {
+    setState(() => _expandedSpanIds.clear());
+  }
+
+  void _setSpanQuery(String value) {
+    setState(() {
+      _spanQuery = value;
+      final query = value.trim().toLowerCase();
+      if (query.isNotEmpty) {
+        _expandedSpanIds.addAll(_queryExpansionSpanIds(query));
+      }
+    });
+  }
+
+  void _setDenseMobileRows(bool value) {
+    setState(() => _denseMobileRows = value);
   }
 
   void _zoomIn() {
@@ -317,6 +427,36 @@ class _TraceBodyState extends State<_TraceBody> {
   }
 
   void _seekTimelineFraction(double fraction) {
+    if (_lastCompactLayout) {
+      final visibleSpans = _visibleSpans;
+      if (!_verticalScrollController.hasClients || visibleSpans.isEmpty) {
+        return;
+      }
+      final targetTime = _traceStartUs + (_traceDurationUs * fraction).round();
+      var nearestIndex = 0;
+      var nearestDistance = (visibleSpans.first.span.startTime - targetTime)
+          .abs();
+      for (var i = 1; i < visibleSpans.length; i++) {
+        final distance = (visibleSpans[i].span.startTime - targetTime).abs();
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = i;
+        }
+      }
+      final position = _verticalScrollController.position;
+      final target =
+          ((nearestIndex * _compactRowScrollExtent) -
+                  (position.viewportDimension * 0.2))
+              .clamp(0.0, position.maxScrollExtent)
+              .toDouble();
+      position.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+
     if (!_horizontalScrollController.hasClients) return;
     final position = _horizontalScrollController.position;
     final target = (position.maxScrollExtent * fraction)
@@ -354,7 +494,7 @@ class _TraceBodyState extends State<_TraceBody> {
           (item) => item.span.spanID == span.spanID,
         );
         if (visibleIndex == -1) return;
-        final rowHeight = _lastCompactLayout ? 46.0 : 54.0;
+        final rowHeight = _lastCompactLayout ? _compactRowScrollExtent : 54.0;
         final position = _verticalScrollController.position;
         final target =
             ((visibleIndex * rowHeight) - (position.viewportDimension * 0.25))
@@ -384,7 +524,10 @@ class _TraceBodyState extends State<_TraceBody> {
   }
 
   void _openSpanDetails(Span span) {
-    setState(() => _lastOpenedSpanId = span.spanID);
+    setState(() {
+      _lastOpenedSpanId = span.spanID;
+      _expandedSpanIds.addAll(_ancestorSpanIds(span.spanID));
+    });
     _revealSpan(span);
     showModalBottomSheet<void>(
       context: context,
@@ -398,8 +541,17 @@ class _TraceBodyState extends State<_TraceBody> {
         traceStartUs: _traceStartUs,
         traceDurationUs: _traceDurationUs,
         onOpenSpan: _openSpanDetails,
+        onShowSpan: _showSpanInTrace,
       ),
     );
+  }
+
+  void _showSpanInTrace(Span span) {
+    setState(() {
+      _lastOpenedSpanId = span.spanID;
+      _expandedSpanIds.addAll(_ancestorSpanIds(span.spanID));
+    });
+    _revealSpan(span);
   }
 
   Future<void> _copyTraceJson() async {
@@ -450,11 +602,15 @@ class _TraceBodyState extends State<_TraceBody> {
           onCopyTraceJson: _copyTraceJson,
           spanQueryController: _spanQueryController,
           spanQuery: _spanQuery,
-          onSpanQueryChanged: (value) => setState(() => _spanQuery = value),
+          onSpanQueryChanged: _setSpanQuery,
           criticalPathOnly: _criticalPathOnly,
           mobileToolsExpanded: _mobileToolsExpanded,
+          denseMobileRows: _denseMobileRows,
           onToggleMobileToolsExpanded: _toggleMobileToolsExpanded,
+          onDenseMobileRowsChanged: _setDenseMobileRows,
           onCriticalPathChanged: _setCriticalPathOnly,
+          onExpandAll: _expandAllSpans,
+          onCollapseAll: _collapseAllSpans,
           onPreviousSignal: _signalSpans.isEmpty
               ? null
               : () => _openSignalSpan(-1),
@@ -480,6 +636,23 @@ class _TraceBodyState extends State<_TraceBody> {
               _lastTimelineWidth = timelineWidth;
               _lastLabelColumnWidth = labelColumnWidth;
               _lastCompactLayout = compact;
+
+              if (compact) {
+                return _CompactTraceNavigator(
+                  spans: visibleSpans,
+                  expandedSpanIds: _expandedSpanIds,
+                  signalSpanIds: signalSpanIds,
+                  lastOpenedSpanId: _lastOpenedSpanId,
+                  serviceNames: _serviceNames,
+                  traceStartUs: _traceStartUs,
+                  traceDurationUs: _traceDurationUs,
+                  denseRows: _denseMobileRows,
+                  scrollController: _verticalScrollController,
+                  onToggle: _toggleSpan,
+                  onOpen: _openSpanDetails,
+                  childCountFor: _descendantCount,
+                );
+              }
 
               return GestureDetector(
                 onDoubleTap: _resetZoom,
@@ -520,6 +693,9 @@ class _TraceBodyState extends State<_TraceBody> {
                                         depth: item.depth,
                                         hasChildren: item.hasChildren,
                                         isExpanded: _expandedSpanIds.contains(
+                                          item.span.spanID,
+                                        ),
+                                        childCount: _descendantCount(
                                           item.span.spanID,
                                         ),
                                         onToggle: () =>
@@ -577,6 +753,26 @@ class _VisibleSpan {
   final bool hasChildren;
 }
 
+class _TraceDetailViewState {
+  const _TraceDetailViewState({
+    required this.expandedSpanIds,
+    required this.spanQuery,
+    required this.criticalPathOnly,
+    required this.mobileToolsExpanded,
+    required this.denseMobileRows,
+    required this.lastOpenedSpanId,
+    required this.timelineScale,
+  });
+
+  final Set<String> expandedSpanIds;
+  final String spanQuery;
+  final bool criticalPathOnly;
+  final bool mobileToolsExpanded;
+  final bool denseMobileRows;
+  final String? lastOpenedSpanId;
+  final double timelineScale;
+}
+
 class _TraceHeader extends StatelessWidget {
   const _TraceHeader({
     required this.trace,
@@ -600,8 +796,12 @@ class _TraceHeader extends StatelessWidget {
     required this.onSpanQueryChanged,
     required this.criticalPathOnly,
     required this.mobileToolsExpanded,
+    required this.denseMobileRows,
     required this.onToggleMobileToolsExpanded,
+    required this.onDenseMobileRowsChanged,
     required this.onCriticalPathChanged,
+    required this.onExpandAll,
+    required this.onCollapseAll,
     required this.onPreviousSignal,
     required this.onNextSignal,
   });
@@ -627,8 +827,12 @@ class _TraceHeader extends StatelessWidget {
   final ValueChanged<String> onSpanQueryChanged;
   final bool criticalPathOnly;
   final bool mobileToolsExpanded;
+  final bool denseMobileRows;
   final VoidCallback onToggleMobileToolsExpanded;
+  final ValueChanged<bool> onDenseMobileRowsChanged;
   final ValueChanged<bool> onCriticalPathChanged;
+  final VoidCallback onExpandAll;
+  final VoidCallback onCollapseAll;
   final VoidCallback? onPreviousSignal;
   final VoidCallback? onNextSignal;
 
@@ -638,8 +842,160 @@ class _TraceHeader extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final compact = MediaQuery.sizeOf(context).width < 520;
 
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_up),
+                  tooltip: 'Previous signal span',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onPreviousSignal,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_down),
+                  tooltip: 'Next signal span',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onNextSignal,
+                ),
+                IconButton(
+                  icon: Icon(
+                    mobileToolsExpanded ? Icons.expand_less : Icons.search,
+                  ),
+                  tooltip: mobileToolsExpanded
+                      ? 'Hide trace search'
+                      : 'Show trace search',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onToggleMobileToolsExpanded,
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  tooltip: 'Trace tree actions',
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'expand':
+                        onExpandAll();
+                        return;
+                      case 'collapse':
+                        onCollapseAll();
+                        return;
+                      case 'critical':
+                        onCriticalPathChanged(!criticalPathOnly);
+                        return;
+                      case 'density':
+                        onDenseMobileRowsChanged(!denseMobileRows);
+                        return;
+                      case 'copy':
+                        onCopyTraceId();
+                        return;
+                      case 'json':
+                        onCopyTraceJson();
+                        return;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'expand',
+                      child: Text('Expand all'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'collapse',
+                      child: Text('Collapse all'),
+                    ),
+                    CheckedPopupMenuItem(
+                      value: 'critical',
+                      checked: criticalPathOnly,
+                      child: const Text('Critical path'),
+                    ),
+                    CheckedPopupMenuItem(
+                      value: 'density',
+                      checked: denseMobileRows,
+                      child: const Text('Compact rows'),
+                    ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(
+                      value: 'copy',
+                      child: Text('Copy trace ID'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'json',
+                      child: Text('Copy trace JSON'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _CompactMetricPill(
+                  icon: Icons.timer_outlined,
+                  label: formatDuration(durationUs),
+                ),
+                _CompactMetricPill(
+                  icon: Icons.account_tree_outlined,
+                  label: '${trace.spans.length} spans',
+                ),
+                _CompactMetricPill(
+                  icon: Icons.dns_outlined,
+                  label: '$servicesCount services',
+                ),
+                _CompactMetricPill(
+                  icon: Icons.layers_outlined,
+                  label: 'depth $depth',
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            RepaintBoundary(
+              child: _MiniTraceTimeline(
+                trace: trace,
+                traceStartUs: startUs,
+                traceDurationUs: durationUs,
+                scale: scale,
+                scrollFraction: scrollFraction,
+                compact: true,
+                onSeek: onSeekTimeline,
+              ),
+            ),
+            _TraceToolPanel(
+              visible: mobileToolsExpanded,
+              spanQueryController: spanQueryController,
+              spanQuery: spanQuery,
+              onSpanQueryChanged: onSpanQueryChanged,
+              criticalPathOnly: criticalPathOnly,
+              onCriticalPathChanged: onCriticalPathChanged,
+              onPreviousSignal: onPreviousSignal,
+              onNextSignal: onNextSignal,
+              showCriticalPath: false,
+              showSignalNavigation: false,
+              showExpansionControls: false,
+              onExpandAll: onExpandAll,
+              onCollapseAll: onCollapseAll,
+            ),
+          ],
+        ),
+      );
+    }
+
     return Padding(
-      padding: EdgeInsets.fromLTRB(12, compact ? 10 : 16, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -703,64 +1059,122 @@ class _TraceHeader extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 4,
-              runSpacing: 4,
-              children: [
-                IconButton.filledTonal(
-                  icon: const Icon(Icons.zoom_out),
-                  tooltip: 'Zoom out',
-                  onPressed: scale > 1.0 ? onZoomOut : null,
-                ),
-                SizedBox(
-                  width: 52,
-                  child: Center(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 150),
-                      transitionBuilder: (child, animation) =>
-                          FadeTransition(opacity: animation, child: child),
-                      child: Text(
-                        '${(scale * 100).toStringAsFixed(0)}%',
-                        key: ValueKey<double>(scale),
+            child: compact
+                ? Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      IconButton.filledTonal(
+                        icon: const Icon(Icons.keyboard_arrow_up),
+                        tooltip: 'Previous signal span',
+                        onPressed: onPreviousSignal,
                       ),
-                    ),
+                      IconButton.filledTonal(
+                        icon: const Icon(Icons.keyboard_arrow_down),
+                        tooltip: 'Next signal span',
+                        onPressed: onNextSignal,
+                      ),
+                      FilterChip(
+                        avatar: const Icon(Icons.route_outlined, size: 16),
+                        label: const Text('Critical path'),
+                        selected: criticalPathOnly,
+                        onSelected: onCriticalPathChanged,
+                      ),
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.account_tree_outlined),
+                        tooltip: 'Trace tree actions',
+                        onSelected: (value) {
+                          switch (value) {
+                            case 'expand':
+                              onExpandAll();
+                              return;
+                            case 'collapse':
+                              onCollapseAll();
+                              return;
+                            case 'density':
+                              onDenseMobileRowsChanged(!denseMobileRows);
+                              return;
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'expand',
+                            child: Text('Expand all'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'collapse',
+                            child: Text('Collapse all'),
+                          ),
+                          CheckedPopupMenuItem(
+                            value: 'density',
+                            checked: denseMobileRows,
+                            child: const Text('Compact rows'),
+                          ),
+                        ],
+                      ),
+                      IconButton.filledTonal(
+                        icon: Icon(
+                          mobileToolsExpanded
+                              ? Icons.expand_less
+                              : Icons.manage_search,
+                        ),
+                        tooltip: mobileToolsExpanded
+                            ? 'Hide trace search'
+                            : 'Show trace search',
+                        onPressed: onToggleMobileToolsExpanded,
+                      ),
+                    ],
+                  )
+                : Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      IconButton.filledTonal(
+                        icon: const Icon(Icons.zoom_out),
+                        tooltip: 'Zoom out',
+                        onPressed: scale > 1.0 ? onZoomOut : null,
+                      ),
+                      SizedBox(
+                        width: 52,
+                        child: Center(
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 150),
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                            child: Text(
+                              '${(scale * 100).toStringAsFixed(0)}%',
+                              key: ValueKey<double>(scale),
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton.filledTonal(
+                        icon: const Icon(Icons.zoom_in),
+                        tooltip: 'Zoom in',
+                        onPressed: scale < 20.0 ? onZoomIn : null,
+                      ),
+                      IconButton.filledTonal(
+                        icon: const Icon(Icons.keyboard_arrow_left),
+                        tooltip: 'Pan timeline left',
+                        onPressed: onPanLeft,
+                      ),
+                      IconButton.filledTonal(
+                        icon: const Icon(Icons.keyboard_arrow_right),
+                        tooltip: 'Pan timeline right',
+                        onPressed: onPanRight,
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.center_focus_strong, size: 18),
+                        onPressed: scale > 1.0 ? onResetZoom : null,
+                        label: const Text('Reset'),
+                      ),
+                    ],
                   ),
-                ),
-                IconButton.filledTonal(
-                  icon: const Icon(Icons.zoom_in),
-                  tooltip: 'Zoom in',
-                  onPressed: scale < 20.0 ? onZoomIn : null,
-                ),
-                IconButton.filledTonal(
-                  icon: const Icon(Icons.keyboard_arrow_left),
-                  tooltip: 'Pan timeline left',
-                  onPressed: onPanLeft,
-                ),
-                IconButton.filledTonal(
-                  icon: const Icon(Icons.keyboard_arrow_right),
-                  tooltip: 'Pan timeline right',
-                  onPressed: onPanRight,
-                ),
-                TextButton.icon(
-                  icon: const Icon(Icons.center_focus_strong, size: 18),
-                  onPressed: scale > 1.0 ? onResetZoom : null,
-                  label: const Text('Reset'),
-                ),
-                if (compact)
-                  IconButton.filledTonal(
-                    icon: Icon(
-                      mobileToolsExpanded
-                          ? Icons.expand_less
-                          : Icons.manage_search,
-                    ),
-                    tooltip: mobileToolsExpanded
-                        ? 'Hide trace tools'
-                        : 'Show trace tools',
-                    onPressed: onToggleMobileToolsExpanded,
-                  ),
-              ],
-            ),
           ),
           _TraceToolPanel(
             visible: !compact || mobileToolsExpanded,
@@ -771,6 +1185,11 @@ class _TraceHeader extends StatelessWidget {
             onCriticalPathChanged: onCriticalPathChanged,
             onPreviousSignal: onPreviousSignal,
             onNextSignal: onNextSignal,
+            showCriticalPath: !compact,
+            showSignalNavigation: !compact,
+            showExpansionControls: !compact,
+            onExpandAll: onExpandAll,
+            onCollapseAll: onCollapseAll,
           ),
         ],
       ),
@@ -798,6 +1217,41 @@ class _MetaChip extends StatelessWidget {
   }
 }
 
+class _CompactMetricPill extends StatelessWidget {
+  const _CompactMetricPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: colorScheme.primary),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TraceToolPanel extends StatelessWidget {
   const _TraceToolPanel({
     required this.visible,
@@ -808,6 +1262,11 @@ class _TraceToolPanel extends StatelessWidget {
     required this.onCriticalPathChanged,
     required this.onPreviousSignal,
     required this.onNextSignal,
+    required this.showCriticalPath,
+    required this.showSignalNavigation,
+    required this.showExpansionControls,
+    required this.onExpandAll,
+    required this.onCollapseAll,
   });
 
   final bool visible;
@@ -818,6 +1277,11 @@ class _TraceToolPanel extends StatelessWidget {
   final ValueChanged<bool> onCriticalPathChanged;
   final VoidCallback? onPreviousSignal;
   final VoidCallback? onNextSignal;
+  final bool showCriticalPath;
+  final bool showSignalNavigation;
+  final bool showExpansionControls;
+  final VoidCallback onExpandAll;
+  final VoidCallback onCollapseAll;
 
   @override
   Widget build(BuildContext context) {
@@ -850,26 +1314,50 @@ class _TraceToolPanel extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(
-                  icon: const Icon(Icons.keyboard_arrow_up),
-                  tooltip: 'Previous signal span',
-                  onPressed: onPreviousSignal,
-                ),
-                IconButton.filledTonal(
-                  icon: const Icon(Icons.keyboard_arrow_down),
-                  tooltip: 'Next signal span',
-                  onPressed: onNextSignal,
-                ),
+                if (showSignalNavigation) ...[
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    icon: const Icon(Icons.keyboard_arrow_up),
+                    tooltip: 'Previous signal span',
+                    onPressed: onPreviousSignal,
+                  ),
+                  IconButton.filledTonal(
+                    icon: const Icon(Icons.keyboard_arrow_down),
+                    tooltip: 'Next signal span',
+                    onPressed: onNextSignal,
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 8),
-            FilterChip(
-              avatar: const Icon(Icons.route_outlined, size: 16),
-              label: const Text('Critical path'),
-              selected: criticalPathOnly,
-              onSelected: onCriticalPathChanged,
-            ),
+            if (showCriticalPath || showExpansionControls) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (showCriticalPath)
+                    FilterChip(
+                      avatar: const Icon(Icons.route_outlined, size: 16),
+                      label: const Text('Critical path'),
+                      selected: criticalPathOnly,
+                      onSelected: onCriticalPathChanged,
+                    ),
+                  if (showExpansionControls) ...[
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.unfold_more, size: 18),
+                      label: const Text('Expand all'),
+                      onPressed: onExpandAll,
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.unfold_less, size: 18),
+                      label: const Text('Collapse all'),
+                      onPressed: onCollapseAll,
+                    ),
+                  ],
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1312,12 +1800,381 @@ double _labelColumnWidthFor(double viewportWidth) {
   return _desktopLabelColumnWidth;
 }
 
+class _CompactTraceNavigator extends StatelessWidget {
+  const _CompactTraceNavigator({
+    required this.spans,
+    required this.expandedSpanIds,
+    required this.signalSpanIds,
+    required this.lastOpenedSpanId,
+    required this.serviceNames,
+    required this.traceStartUs,
+    required this.traceDurationUs,
+    required this.denseRows,
+    required this.scrollController,
+    required this.onToggle,
+    required this.onOpen,
+    required this.childCountFor,
+  });
+
+  static const double rowSpacing = 6;
+
+  final List<_VisibleSpan> spans;
+  final Set<String> expandedSpanIds;
+  final Set<String> signalSpanIds;
+  final String? lastOpenedSpanId;
+  final Map<String, String> serviceNames;
+  final int traceStartUs;
+  final int traceDurationUs;
+  final bool denseRows;
+  final ScrollController scrollController;
+  final ValueChanged<String> onToggle;
+  final ValueChanged<Span> onOpen;
+  final int Function(String spanId) childCountFor;
+
+  @override
+  Widget build(BuildContext context) {
+    if (spans.isEmpty) {
+      return const Center(child: Text('No spans match'));
+    }
+
+    return ListView.separated(
+      controller: scrollController,
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 20),
+      itemCount: spans.length,
+      separatorBuilder: (_, _) => const SizedBox(height: rowSpacing),
+      itemBuilder: (context, index) {
+        final item = spans[index];
+        final service = serviceNames[item.span.spanID] ?? item.span.processID;
+        return RepaintBoundary(
+          child: _CompactSpanNode(
+            span: item.span,
+            depth: item.depth,
+            hasChildren: item.hasChildren,
+            isExpanded: expandedSpanIds.contains(item.span.spanID),
+            childCount: childCountFor(item.span.spanID),
+            isSignal: signalSpanIds.contains(item.span.spanID),
+            isSelected: item.span.spanID == lastOpenedSpanId,
+            service: service,
+            serviceColor: serviceColor(service),
+            traceStartUs: traceStartUs,
+            traceDurationUs: traceDurationUs,
+            dense: denseRows,
+            onToggle: () => onToggle(item.span.spanID),
+            onOpen: () => onOpen(item.span),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CompactSpanNode extends StatelessWidget {
+  const _CompactSpanNode({
+    required this.span,
+    required this.depth,
+    required this.hasChildren,
+    required this.isExpanded,
+    required this.childCount,
+    required this.isSignal,
+    required this.isSelected,
+    required this.service,
+    required this.serviceColor,
+    required this.traceStartUs,
+    required this.traceDurationUs,
+    required this.dense,
+    required this.onToggle,
+    required this.onOpen,
+  });
+
+  static const double regularRowExtent = 82;
+  static const double denseRowExtent = 64;
+
+  static double rowExtentFor({required bool dense}) =>
+      dense ? denseRowExtent : regularRowExtent;
+
+  final Span span;
+  final int depth;
+  final bool hasChildren;
+  final bool isExpanded;
+  final int childCount;
+  final bool isSignal;
+  final bool isSelected;
+  final String service;
+  final Color serviceColor;
+  final int traceStartUs;
+  final int traceDurationUs;
+  final bool dense;
+  final VoidCallback onToggle;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final signalColor = _signalColorFor(context, span);
+    final indent = min(depth * 14.0, 54.0);
+    final rowExtent = rowExtentFor(dense: dense);
+
+    return Material(
+      color: isSelected
+          ? colorScheme.primaryContainer.withValues(alpha: 0.42)
+          : colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: isSelected ? colorScheme.primary : colorScheme.outlineVariant,
+          width: isSelected ? 1.4 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        height: rowExtent,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(10, dense ? 6 : 8, 10, dense ? 6 : 8),
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                width: 3,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  color: isSignal ? signalColor : Colors.transparent,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              SizedBox(width: 7 + indent),
+              SizedBox(
+                width: 34,
+                child: hasChildren
+                    ? Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.center,
+                        children: [
+                          IconButton(
+                            icon: AnimatedRotation(
+                              turns: isExpanded ? 0 : -0.25,
+                              duration: const Duration(milliseconds: 180),
+                              child: const Icon(Icons.expand_more),
+                            ),
+                            tooltip: isExpanded
+                                ? 'Collapse span'
+                                : 'Expand span',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            onPressed: onToggle,
+                          ),
+                          if (!isExpanded && childCount > 0)
+                            Positioned(
+                              right: -2,
+                              bottom: dense ? 4 : 8,
+                              child: _ChildCountBadge(count: childCount),
+                            ),
+                        ],
+                      )
+                    : Icon(
+                        Icons.subdirectory_arrow_right,
+                        size: dense ? 15 : 17,
+                        color: colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.58,
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: onOpen,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: serviceColor,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 7),
+                                  Expanded(
+                                    child: Text(
+                                      span.operationName,
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    formatDuration(span.duration),
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
+                                          color: isSignal
+                                              ? signalColor
+                                              : colorScheme.onSurfaceVariant,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                              if (!dense) const SizedBox(height: 3),
+                              Text(
+                                service,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (!dense) ...[
+                                const SizedBox(height: 7),
+                                _CompactSpanTimeline(
+                                  span: span,
+                                  traceStartUs: traceStartUs,
+                                  traceDurationUs: traceDurationUs,
+                                  color: serviceColor,
+                                  signalColor: isSignal ? signalColor : null,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.chevron_right,
+                          size: 20,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactSpanTimeline extends StatelessWidget {
+  const _CompactSpanTimeline({
+    required this.span,
+    required this.traceStartUs,
+    required this.traceDurationUs,
+    required this.color,
+    required this.signalColor,
+  });
+
+  final Span span;
+  final int traceStartUs;
+  final int traceDurationUs;
+  final Color color;
+  final Color? signalColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final left = traceDurationUs <= 0
+            ? 0.0
+            : (((span.startTime - traceStartUs) / traceDurationUs) * width)
+                  .clamp(0.0, width)
+                  .toDouble();
+        final barWidth = traceDurationUs <= 0
+            ? 3.0
+            : ((span.duration / traceDurationUs) * width)
+                  .clamp(3.0, max(3.0, width - left))
+                  .toDouble();
+
+        return SizedBox(
+          height: 10,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: left,
+                top: 1,
+                width: barWidth,
+                height: 8,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                    border: signalColor == null
+                        ? null
+                        : Border.all(color: signalColor!, width: 1),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ChildCountBadge extends StatelessWidget {
+  const _ChildCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 16, minHeight: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      decoration: BoxDecoration(
+        color: colorScheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: colorScheme.surface, width: 1),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        count > 99 ? '99+' : '$count',
+        style: TextStyle(
+          color: colorScheme.onSecondaryContainer,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
 class _SpanNode extends StatelessWidget {
   const _SpanNode({
     required this.span,
     required this.depth,
     required this.hasChildren,
     required this.isExpanded,
+    required this.childCount,
     required this.onToggle,
     required this.onOpen,
     required this.traceStartUs,
@@ -1335,6 +2192,7 @@ class _SpanNode extends StatelessWidget {
   final int depth;
   final bool hasChildren;
   final bool isExpanded;
+  final int childCount;
   final VoidCallback onToggle;
   final VoidCallback onOpen;
   final int traceStartUs;
@@ -1371,7 +2229,9 @@ class _SpanNode extends StatelessWidget {
       span: span,
       hasChildren: hasChildren,
       isExpanded: isExpanded,
+      childCount: childCount,
       onToggle: onToggle,
+      onOpen: onOpen,
       service: service,
       serviceColor: serviceColor,
       signalColor: signalColor,
@@ -1386,17 +2246,17 @@ class _SpanNode extends StatelessWidget {
       color: isSelected
           ? colorScheme.primaryContainer.withValues(alpha: 0.35)
           : Colors.transparent,
-      child: InkWell(
-        onTap: onOpen,
-        child: SizedBox(
-          width: labelColumnWidth + timelineWidth,
-          height: rowHeight,
-          child: Stack(
-            children: [
-              Row(
-                children: [
-                  SizedBox(width: labelColumnWidth),
-                  SizedBox(
+      child: SizedBox(
+        width: labelColumnWidth + timelineWidth,
+        height: rowHeight,
+        child: Stack(
+          children: [
+            Row(
+              children: [
+                SizedBox(width: labelColumnWidth),
+                InkWell(
+                  onTap: onOpen,
+                  child: SizedBox(
                     width: timelineWidth,
                     height: rowHeight,
                     child: Stack(
@@ -1453,16 +2313,16 @@ class _SpanNode extends StatelessWidget {
                       ],
                     ),
                   ),
-                ],
-              ),
-              Positioned(
-                left: labelScrollOffset,
-                top: 0,
-                bottom: 0,
-                child: label,
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+            Positioned(
+              left: labelScrollOffset,
+              top: 0,
+              bottom: 0,
+              child: label,
+            ),
+          ],
         ),
       ),
     );
@@ -1474,7 +2334,9 @@ class _SpanLabel extends StatelessWidget {
     required this.span,
     required this.hasChildren,
     required this.isExpanded,
+    required this.childCount,
     required this.onToggle,
+    required this.onOpen,
     required this.service,
     required this.serviceColor,
     required this.signalColor,
@@ -1488,7 +2350,9 @@ class _SpanLabel extends StatelessWidget {
   final Span span;
   final bool hasChildren;
   final bool isExpanded;
+  final int childCount;
   final VoidCallback onToggle;
+  final VoidCallback onOpen;
   final String service;
   final Color serviceColor;
   final Color signalColor;
@@ -1529,20 +2393,39 @@ class _SpanLabel extends StatelessWidget {
             ),
             const SizedBox(width: 5),
             if (hasChildren)
-              GestureDetector(
-                onTap: onToggle,
-                child: AnimatedRotation(
-                  turns: isExpanded ? 0 : -0.25,
-                  duration: const Duration(milliseconds: 200),
-                  child: Icon(
-                    Icons.expand_more,
-                    size: 18,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+              SizedBox(
+                width: 28,
+                height: 32,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    IconButton(
+                      icon: AnimatedRotation(
+                        turns: isExpanded ? 0 : -0.25,
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(
+                          Icons.expand_more,
+                          size: 18,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      tooltip: isExpanded ? 'Collapse span' : 'Expand span',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      onPressed: onToggle,
+                    ),
+                    if (!isExpanded && childCount > 0)
+                      Positioned(
+                        right: -1,
+                        bottom: 3,
+                        child: _ChildCountBadge(count: childCount),
+                      ),
+                  ],
                 ),
               )
             else
-              const SizedBox(width: 18),
+              const SizedBox(width: 28),
             SizedBox(width: compact ? 4 : 6),
             if (!compact) ...[
               Container(
@@ -1556,31 +2439,38 @@ class _SpanLabel extends StatelessWidget {
               const SizedBox(width: 8),
             ],
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    span.operationName,
-                    style:
-                        (compact
-                                ? theme.textTheme.bodySmall
-                                : theme.textTheme.bodyMedium)
-                            ?.copyWith(fontWeight: FontWeight.w500),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (!compact) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      '$service · ${formatDuration(span.duration)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
+              child: InkWell(
+                onTap: onOpen,
+                borderRadius: BorderRadius.circular(4),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        span.operationName,
+                        style:
+                            (compact
+                                    ? theme.textTheme.bodySmall
+                                    : theme.textTheme.bodyMedium)
+                                ?.copyWith(fontWeight: FontWeight.w500),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ],
+                      if (!compact) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '$service · ${formatDuration(span.duration)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
@@ -1599,6 +2489,7 @@ class _SpanDetailsSheet extends StatelessWidget {
     required this.traceStartUs,
     required this.traceDurationUs,
     required this.onOpenSpan,
+    required this.onShowSpan,
   });
 
   final Span span;
@@ -1608,6 +2499,7 @@ class _SpanDetailsSheet extends StatelessWidget {
   final int traceStartUs;
   final int traceDurationUs;
   final ValueChanged<Span> onOpenSpan;
+  final ValueChanged<Span> onShowSpan;
 
   @override
   Widget build(BuildContext context) {
@@ -1641,6 +2533,12 @@ class _SpanDetailsSheet extends StatelessWidget {
             color: color,
           ),
           const SizedBox(height: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.my_location, size: 18),
+            label: const Text('Show in trace'),
+            onPressed: () => _showFromSheet(context, span),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -1736,6 +2634,11 @@ class _SpanDetailsSheet extends StatelessWidget {
   void _openFromSheet(BuildContext context, Span target) {
     Navigator.of(context).pop();
     WidgetsBinding.instance.addPostFrameCallback((_) => onOpenSpan(target));
+  }
+
+  void _showFromSheet(BuildContext context, Span target) {
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) => onShowSpan(target));
   }
 }
 
