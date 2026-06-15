@@ -70,11 +70,56 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('25'), findsAtLeastNWidgets(1));
-      expect(find.byIcon(Icons.keyboard_arrow_left), findsOneWidget);
-      expect(find.byIcon(Icons.keyboard_arrow_right), findsOneWidget);
+      expect(find.byIcon(Icons.keyboard_arrow_up), findsOneWidget);
+      expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
       expect(find.byIcon(Icons.manage_search), findsOneWidget);
       expect(find.byType(ListView), findsOneWidget);
-      expect(find.byType(SingleChildScrollView), findsOneWidget);
+      expect(find.byType(SingleChildScrollView), findsNothing);
+      expect(find.text('operation-2'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Trace tree actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Collapse all'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('operation-2'), findsNothing);
+
+      await tester.tap(find.byTooltip('Trace tree actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Expand all'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('operation-2'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.expand_more).first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
+      expect(find.text('operation-2'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.manage_search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'operation-2');
+      await tester.pumpAndSettle();
+
+      final matchingSpanRow = find.descendant(
+        of: find.byType(ListView),
+        matching: find.text('operation-2'),
+      );
+
+      expect(find.text('operation-1'), findsOneWidget);
+      expect(matchingSpanRow, findsOneWidget);
+
+      await tester.tap(matchingSpanRow);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+      expect(find.text('Show in trace'), findsOneWidget);
+
+      await tester.tap(find.text('Show in trace'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DraggableScrollableSheet), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });
